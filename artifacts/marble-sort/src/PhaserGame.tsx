@@ -33,6 +33,13 @@ export function PhaserGame() {
         width: GAME_WIDTH,
         height: GAME_HEIGHT,
       },
+      physics: {
+        default: "matter",
+        matter: {
+          gravity: { x: 0, y: 2 },
+          debug: true, // debugGraphic created; drawDebug toggled at runtime via D key
+        },
+      },
       input: {
         mouse: {
           preventDefaultWheel: false,

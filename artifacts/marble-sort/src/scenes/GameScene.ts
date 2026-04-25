@@ -9,7 +9,6 @@ import {
   CONVEYOR_MARBLE_RADIUS,
   TUBE_WIDTH,
   TUBE_GAP,
-  MARBLE_ANIM_MS,
   MARBLE_COLORS,
   SCENE_MENU,
   SCENE_COMPLETE,
@@ -52,6 +51,7 @@ interface TileSprite {
 interface MarbleSprite {
   container: Phaser.GameObjects.Container;
   marble: Marble;
+  physicsBody?: MatterJS.BodyType; // only for pending-eject marbles in the funnel
 }
 
 export class GameScene extends Phaser.Scene {
@@ -70,6 +70,12 @@ export class GameScene extends Phaser.Scene {
   private lanesY = 0;
   private shippingLaneIds: Set<number> = new Set();
   private mmcExitDepth = 20;
+
+  // Funnel physics geometry (computed in drawGridPanel, used by createFunnelColliders)
+  private funnelPanelX = 0;
+  private funnelPanelW = 0;
+  private funnelPanelBottom = 0;
+  private physicsDebugOn = false;
 
   constructor() {
     super("GameScene");
@@ -103,6 +109,17 @@ export class GameScene extends Phaser.Scene {
     this.buildGrid();
     this.drawConveyor();
     this.drawMMCLanes();
+    this.createFunnelColliders();
+
+    // Start with physics debug off; press D to toggle
+    this.matter.world.drawDebug = false;
+    this.input.keyboard?.on("keydown-D", () => {
+      this.physicsDebugOn = !this.physicsDebugOn;
+      this.matter.world.drawDebug = this.physicsDebugOn;
+      if (!this.physicsDebugOn) {
+        (this.matter.world as any).debugGraphic?.clear();
+      }
+    });
 
     // Status banner just below the top bar
     this.statusText = this.add
@@ -191,6 +208,10 @@ export class GameScene extends Phaser.Scene {
     const funnelBottomY = 382;
     const throatW = 82;
 
+    this.funnelPanelX = panelX;
+    this.funnelPanelW = panelW;
+    this.funnelPanelBottom = panelBottom;
+
     const g = this.add.graphics();
 
     // Main grid chassis with stepped shoulders like the reference machine.
@@ -276,6 +297,41 @@ export class GameScene extends Phaser.Scene {
     g.lineTo(panelX + shadowOffset, topY + 48);
     g.closePath();
     g.fillPath();
+  }
+
+  private createFunnelColliders(): void {
+    const T = 40;
+    const cx = GAME_WIDTH / 2;
+    const px = this.funnelPanelX;
+    const pw = this.funnelPanelW;
+    const panelY = 76;
+    const fbY = this.conveyorY;
+    const tw = 82;
+
+    const Tau = 2 * Math.PI
+    // Single ramp per side: panel top-corner → throat
+    const lx1 = px, ly1 = panelY, lx2 = cx - tw / 2, ly2 = fbY;
+    const lLen = Math.hypot(lx2 - lx1, ly2 - ly1);
+    this.matter.add.rectangle((lx1 + lx2) / 2 -20+20, 400-100, 200, T,
+      { isStatic: true, angle: Tau/15, label: "ramp-left" });
+
+    const rx1 = px + pw, ry1 = panelY, rx2 = cx + tw / 2, ry2 = fbY;
+    const rLen = Math.hypot(rx2 - rx1, ry2 - ry1);
+    this.matter.add.rectangle((rx1 + rx2) / 2 +50-20, 400-100, 200, T,
+      { isStatic: true, angle:-Tau/15, label: "ramp-right" });
+
+    this.matter.add.rectangle(40, 200, 50, 300, {isStatic : true, angle : 0})
+    this.matter.add.rectangle(400+40+40, 200, 50, 300, {isStatic : true, angle : 0})
+
+    // Top cap
+    this.matter.add.rectangle(cx, panelY - T / 2, pw + T * 2, T, { isStatic: true, label: "wall-top" });
+
+    // Barrier at conveyor top
+    this.matter.add.rectangle(cx, fbY + T / 2, tw, T, { isStatic: true, label: "funnel-barrier" });
+
+    // Screen-edge guards
+    this.matter.add.rectangle(-T / 2, GAME_HEIGHT / 2, T, GAME_HEIGHT, { isStatic: true, label: "bound-left" });
+    this.matter.add.rectangle(GAME_WIDTH + T / 2, GAME_HEIGHT / 2, T, GAME_HEIGHT, { isStatic: true, label: "bound-right" });
   }
 
   private tilePos(r: number, c: number): { x: number; y: number } {
@@ -434,18 +490,6 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  // Position used to display marbles waiting in the pendingEject queue,
-  // stacked below the grid drop point until the logical conveyor has room.
-  private pendingPos(idx: number): { x: number; y: number } {
-    const startX = GAME_WIDTH / 2 - 42;
-    return {
-      x: startX + (idx % 4) * (CONVEYOR_MARBLE_RADIUS * 2 + 4),
-      y:
-        this.conveyorY -
-        34 -
-        Math.floor(idx / 4) * (CONVEYOR_MARBLE_RADIUS * 2 + 2),
-    };
-  }
 
   // ─────────────────────────── TUBES ───────────────────────────
   private drawMMCLanes(): void {
@@ -602,12 +646,34 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────── MARBLE SPRITES ───────────────────────────
-  private spawnMarbleSprite(marble: Marble, x: number, y: number): MarbleSprite {
+
+  // Three visual scales for marbles popping out of a tile (large → small)
+  private static readonly MARBLE_SCALES = [1.0, 0.75, 0.55];
+
+  private spawnMarbleSprite(
+    marble: Marble,
+    x: number,
+    y: number,
+    usePhysics = false,
+    physicsRadius = CONVEYOR_MARBLE_RADIUS,
+  ): MarbleSprite {
     const g = this.add.graphics();
     drawMarble(g, CONVEYOR_MARBLE_RADIUS * 2, marble.color);
     const c = this.add.container(x, y, [g]);
     c.setDepth(10);
-    const spr: MarbleSprite = { container: c, marble };
+
+    let physicsBody: MatterJS.BodyType | undefined;
+    if (usePhysics) {
+      physicsBody = this.matter.add.circle(x, y, physicsRadius, {
+        restitution: 0.3,
+        friction: 0.05,       // low sliding friction → marbles roll
+        frictionStatic: 0.08,
+        frictionAir: 0.005,   // low air resistance → momentum carries them
+        label: `marble-${marble.id}`,
+      }) as MatterJS.BodyType;
+    }
+
+    const spr: MarbleSprite = { container: c, marble, physicsBody };
     this.marbleSprites.set(marble.id, spr);
     return spr;
   }
@@ -615,6 +681,10 @@ export class GameScene extends Phaser.Scene {
   private destroyMarbleSprite(id: number): void {
     const spr = this.marbleSprites.get(id);
     if (spr) {
+      if (spr.physicsBody) {
+        this.matter.world.remove(spr.physicsBody as any, true);
+        spr.physicsBody = undefined;
+      }
       spr.container.destroy();
       this.marbleSprites.delete(id);
     }
@@ -662,24 +732,23 @@ export class GameScene extends Phaser.Scene {
     // Redraw everything for safety.
     this.redrawAllTiles();
 
-    // If marbles were released, spawn marble sprites for the new pendingEject items.
+    // If marbles were released, spawn with physics and pop-in animation.
     if (outcome.kind === "released" && outcome.releasedCount > 0) {
       const tilePos = this.tilePos(r, c);
       const newCount = this.state.pendingEject.length - before;
       for (let k = 0; k < newCount; k++) {
-        const idx = before + k;
-        const m = this.state.pendingEject[idx];
-        const target = this.pendingPos(idx);
-        const spr = this.spawnMarbleSprite(m, tilePos.x, tilePos.y);
-        spr.container.setScale(0.4);
+        const m = this.state.pendingEject[before + k];
+        const targetScale = GameScene.MARBLE_SCALES[k % 3];
+        const physicsRadius = CONVEYOR_MARBLE_RADIUS * targetScale;
+        const offsetX = (k % 3 - 1) * (CONVEYOR_MARBLE_RADIUS * 0.6);
+        const spr = this.spawnMarbleSprite(m, tilePos.x + offsetX, tilePos.y, true, physicsRadius);
+        spr.container.setScale(0);
         this.tweens.add({
           targets: spr.container,
-          x: target.x,
-          y: target.y,
-          scale: 1,
-          duration: MARBLE_ANIM_MS,
-          ease: "Cubic.out",
-          delay: k * 60,
+          scale: targetScale,
+          duration: 180,
+          ease: "Back.Out",
+          delay: k * 90,
         });
       }
     }
@@ -701,9 +770,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private fullRebuild(): void {
-    // Clear all marble sprites
-    for (const [, s] of this.marbleSprites) s.container.destroy();
-    this.marbleSprites.clear();
+    // Clear all marble sprites (also removes any physics bodies)
+    const ids = [...this.marbleSprites.keys()];
+    for (const id of ids) this.destroyMarbleSprite(id);
 
     // Rebuild tiles
     for (const row of this.tileSprites) {
@@ -713,10 +782,16 @@ export class GameScene extends Phaser.Scene {
     }
     this.buildGrid();
 
-    // Re-spawn marbles based on state
+    // Re-spawn pending marbles with physics, spread across the funnel area
     this.state.pendingEject.forEach((m, idx) => {
-      const p = this.pendingPos(idx);
-      this.spawnMarbleSprite(m, p.x, p.y);
+      const col = idx % 4;
+      const row = Math.floor(idx / 4);
+      const targetScale = GameScene.MARBLE_SCALES[idx % 3];
+      const physicsRadius = CONVEYOR_MARBLE_RADIUS * targetScale;
+      const x = GAME_WIDTH / 2 + (col - 1.5) * (CONVEYOR_MARBLE_RADIUS * 2 + 4);
+      const y = this.funnelPanelBottom - 80 - row * (CONVEYOR_MARBLE_RADIUS * 2 + 4);
+      const spr = this.spawnMarbleSprite(m, x, y, true, physicsRadius);
+      spr.container.setScale(targetScale);
     });
     this.state.conveyor.forEach((m, i) => {
       if (!m) return;
@@ -749,6 +824,16 @@ export class GameScene extends Phaser.Scene {
 
   // ─────────────────────────── TICK LOOP ───────────────────────────
   update(time: number): void {
+    // Sync physics marble containers to their Matter bodies every frame
+    for (const [, spr] of this.marbleSprites) {
+      if (spr.physicsBody) {
+        spr.container.setPosition(
+          (spr.physicsBody as any).position.x,
+          (spr.physicsBody as any).position.y,
+        );
+      }
+    }
+
     if (this.state.status !== "playing") return;
     if (this.lastTickAt === 0) this.lastTickAt = time;
     if (time - this.lastTickAt < this.state.tickMs) return;
@@ -780,37 +865,29 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // 2. New marble injected at slot 0 from pendingEject — its sprite already
-    //    exists (was spawned at queue position), tween into slot 0.
+    // 2. New marble injected at slot 0 from pendingEject — remove its physics
+    //    body and tween the container onto the conveyor at full scale.
     if (result.injected) {
       const spr = this.marbleSprites.get(result.injected.id);
       if (spr) {
+        if (spr.physicsBody) {
+          this.matter.world.remove(spr.physicsBody as any, true);
+          spr.physicsBody = undefined;
+        }
         const p = this.conveyorSlotPos(0);
         this.tweens.killTweensOf(spr.container);
         this.tweens.add({
           targets: spr.container,
           x: p.x,
           y: p.y,
+          scale: 1,
           duration: this.state.tickMs - 20,
           ease: "Cubic.out",
         });
       }
     }
 
-    // 3. Re-position the remaining pendingEject marbles to their new queue slots.
-    this.state.pendingEject.forEach((m, idx) => {
-      const spr = this.marbleSprites.get(m.id);
-      if (!spr) return;
-      const p = this.pendingPos(idx);
-      this.tweens.killTweensOf(spr.container);
-      this.tweens.add({
-        targets: spr.container,
-        x: p.x,
-        y: p.y,
-        duration: this.state.tickMs - 20,
-        ease: "Cubic.out",
-      });
-    });
+    // Step 3 (re-position pending queue sprites) removed — physics handles positioning.
 
     result.pickups.forEach((pickup) => {
       const spr = this.marbleSprites.get(pickup.marble.id);

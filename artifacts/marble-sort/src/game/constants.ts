@@ -31,7 +31,7 @@ export const TUBE_TOP_PADDING = 14;
 export const MARBLE_ANIM_MS = 220;
 
 // Default level numbers
-export const DEFAULT_MARBLES_PER_BLOCK = 3;
+export const DEFAULT_MARBLES_PER_BLOCK = 9;
 export const MAX_CONVEYOR_CAPACITY = 16;
 export const DEFAULT_CONVEYOR_CAPACITY = MAX_CONVEYOR_CAPACITY;
 export const DEFAULT_TICK_MS = 250;

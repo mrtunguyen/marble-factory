@@ -111,6 +111,19 @@ export class GameScene extends Phaser.Scene {
     this.drawMMCLanes();
     this.createFunnelColliders();
 
+    // Collision events for marble bounces
+    this.matter.world.on("collisionstart", (event: any) => {
+      for (const pair of event.pairs) {
+        const bodyA = pair.bodyA;
+        const bodyB = pair.bodyB;
+        if (bodyA.label.startsWith("marble-") || bodyB.label.startsWith("marble-")) {
+          const marbleBody = bodyA.label.startsWith("marble-") ? bodyA : bodyB;
+          const bounceForce = 0.015;
+          (marbleBody as any).force = { x: 0, y: -bounceForce };
+        }
+      }
+    });
+
     // Start with physics debug off; press D to toggle
     this.matter.world.drawDebug = false;
     this.input.keyboard?.on("keydown-D", () => {
@@ -312,12 +325,12 @@ export class GameScene extends Phaser.Scene {
     // Single ramp per side: panel top-corner → throat
     const lx1 = px, ly1 = panelY, lx2 = cx - tw / 2, ly2 = fbY;
     const lLen = Math.hypot(lx2 - lx1, ly2 - ly1);
-    this.matter.add.rectangle((lx1 + lx2) / 2 -20+20, 400-100, 200, T,
+    this.matter.add.rectangle((lx1 + lx2) / 2 -20+20, 400-100+50, 200, T,
       { isStatic: true, angle: Tau/15, label: "ramp-left" });
 
     const rx1 = px + pw, ry1 = panelY, rx2 = cx + tw / 2, ry2 = fbY;
     const rLen = Math.hypot(rx2 - rx1, ry2 - ry1);
-    this.matter.add.rectangle((rx1 + rx2) / 2 +50-20, 400-100, 200, T,
+    this.matter.add.rectangle((rx1 + rx2) / 2 +50-20-20-5, 400-100+50, 200, T,
       { isStatic: true, angle:-Tau/15, label: "ramp-right" });
 
     this.matter.add.rectangle(40, 200, 50, 300, {isStatic : true, angle : 0})
@@ -665,12 +678,23 @@ export class GameScene extends Phaser.Scene {
     let physicsBody: MatterJS.BodyType | undefined;
     if (usePhysics) {
       physicsBody = this.matter.add.circle(x, y, physicsRadius, {
-        restitution: 0.3,
-        friction: 0.05,       // low sliding friction → marbles roll
+        restitution: 0.15,
+        friction: 0.05,
         frictionStatic: 0.08,
-        frictionAir: 0.005,   // low air resistance → momentum carries them
+        frictionAir: 0.005,
         label: `marble-${marble.id}`,
       }) as MatterJS.BodyType;
+
+      // Downward force proportional to marble size (heavier → falls faster)
+      const sizeRatio = physicsRadius / CONVEYOR_MARBLE_RADIUS;
+      const downForce = 0.0008 * sizeRatio;
+      (physicsBody as any).force = { x: 0, y: downForce };
+
+      // Small random horizontal velocity for visual separation
+      const randomVx = Phaser.Math.Between(-2, 2);
+      // Slight upward bounce on spawn
+      const bounceVy = -3;
+      (physicsBody as any).velocity = { x: randomVx, y: bounceVy };
     }
 
     const spr: MarbleSprite = { container: c, marble, physicsBody };
@@ -746,9 +770,9 @@ export class GameScene extends Phaser.Scene {
         this.tweens.add({
           targets: spr.container,
           scale: targetScale,
-          duration: 180,
+          duration: 100,
           ease: "Back.Out",
-          delay: k * 90,
+          delay: 0//k * 20,
         });
       }
     }

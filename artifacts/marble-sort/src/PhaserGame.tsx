@@ -6,6 +6,8 @@ import { LevelCompleteScene } from "./scenes/LevelCompleteScene";
 import { GameOverScene } from "./scenes/GameOverScene";
 import { EditorScene } from "./scenes/EditorScene";
 import { MapScene } from "./scenes/MapScene";
+import { CityConqueredScene } from "./scenes/CityConqueredScene";
+import { LeaderboardScene } from "./scenes/LeaderboardScene";
 import { GAME_WIDTH, GAME_HEIGHT } from "./game/constants";
 
 export function PhaserGame() {
@@ -27,6 +29,8 @@ export function PhaserGame() {
         LevelCompleteScene,
         GameOverScene,
         EditorScene,
+        CityConqueredScene,
+        LeaderboardScene,
       ],
       parent: containerRef.current,
       scale: {

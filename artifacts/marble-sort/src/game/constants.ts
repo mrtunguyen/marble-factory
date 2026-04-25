@@ -95,6 +95,8 @@ export const SCENE_COMPLETE = "LevelCompleteScene";
 export const SCENE_GAMEOVER = "GameOverScene";
 export const SCENE_EDITOR = "EditorScene";
 export const SCENE_MAP = "MapScene";
+export const SCENE_CONQUEST = "CityConqueredScene";
+export const SCENE_LEADERBOARD = "LeaderboardScene";
 
 // UI palette — teal/cyan factory chassis (per reference screenshot)
 export const UI_CHASSIS = 0x6dc5c8; // main background

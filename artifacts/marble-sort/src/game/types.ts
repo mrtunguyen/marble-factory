@@ -73,6 +73,8 @@ export interface LevelDef {
   // tiles[row][col] — null = empty cell
   tiles: (LevelTile | null)[][];
   tubes: TubeSpec[];
+  parTimeSec?: number;
+  parTaps?: number;
 }
 
 export interface GameState {

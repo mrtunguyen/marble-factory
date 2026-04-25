@@ -11,9 +11,8 @@ import {
   TUBE_GAP,
   MARBLE_COLORS,
   SCENE_MENU,
-  SCENE_COMPLETE,
   SCENE_GAMEOVER,
-  SCENE_MAP,
+  SCENE_CONQUEST,
   UI_BG_TOP,
   UI_BG_BOTTOM,
   UI_GRID_BG,
@@ -33,7 +32,8 @@ import {
   TAP_PARTICLE_COUNT,
 } from "../game/constants";
 import { LEVELS } from "../game/levels";
-import { markCompleted, unlockLevel } from "../game/progression";
+import { markCompleted, unlockLevel, recordRun } from "../game/progression";
+import { computeScore } from "../game/score";
 import { drawTile, drawMarble, drawConveyorPipe } from "../game/draw";
 import {
   buildGameState,
@@ -86,6 +86,8 @@ export class GameScene extends Phaser.Scene {
   private funnelPanelBottom = 0;
   private physicsDebugOn = false;
   private fromMap = false;
+  private startedAt = 0;
+  private tapCount = 0;
 
   constructor() {
     super("GameScene");
@@ -108,9 +110,13 @@ export class GameScene extends Phaser.Scene {
     this.lastTickAt = 0;
     this.shippingLaneIds = new Set();
     this.mmcExitDepth = 20;
+    this.tapCount = 0;
+    this.startedAt = 0;
   }
 
   create(): void {
+    this.startedAt = this.time.now;
+
     // Background
     const bg = this.add.graphics();
     bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
@@ -741,6 +747,7 @@ export class GameScene extends Phaser.Scene {
 
     // Push snapshot to history
     this.state.history.push(snap);
+    this.tapCount++;
 
     // Animate the tile change
     this.redrawTile(r, c);
@@ -974,16 +981,36 @@ export class GameScene extends Phaser.Scene {
     if (result.statusChanged) {
       this.time.delayedCall(700, () => {
         if (this.state.status === "won") {
-          if (this.fromMap) {
-            markCompleted(this.level.id);
-            const idx = LEVELS.findIndex((l) => l.id === this.level.id);
-            const nextId =
-              idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1].id : undefined;
-            if (nextId !== undefined) unlockLevel(nextId);
-            this.scene.start(SCENE_MAP, { justUnlocked: nextId });
-          } else {
-            this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
-          }
+          const timeSec = (this.time.now - this.startedAt) / 1000;
+          const par = {
+            time: this.level.parTimeSec ?? 30,
+            taps: this.level.parTaps ?? 8,
+          };
+          const { score, stars } = computeScore(
+            { timeSec, taps: this.tapCount },
+            par,
+          );
+          recordRun(this.level.id, {
+            score,
+            stars,
+            timeSec,
+            taps: this.tapCount,
+          });
+          markCompleted(this.level.id);
+          const idx = LEVELS.findIndex((l) => l.id === this.level.id);
+          const nextId =
+            idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1].id : undefined;
+          if (nextId !== undefined) unlockLevel(nextId);
+          this.scene.start(SCENE_CONQUEST, {
+            levelId: this.level.id,
+            score,
+            stars,
+            timeSec,
+            taps: this.tapCount,
+            par,
+            fromMap: this.fromMap,
+            justUnlocked: nextId,
+          });
         } else if (this.state.status === "lost") {
           this.scene.start(SCENE_GAMEOVER, { levelId: this.level.id, fromMap: this.fromMap });
         }

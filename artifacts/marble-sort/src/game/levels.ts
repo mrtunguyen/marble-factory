@@ -49,6 +49,8 @@ export const LEVELS: LevelDef[] = [
       { color: "red", capacity: 6 },
       { color: "blue", capacity: 6 },
     ],
+    parTimeSec: 12,
+    parTaps: 4,
   },
 
   // ───── Level 2 ─────  Counter twist: a single counter-2 tile.
@@ -69,6 +71,8 @@ export const LEVELS: LevelDef[] = [
       { color: "blue", capacity: 6 },
       { color: "green", capacity: 6 },
     ],
+    parTimeSec: 20,
+    parTaps: 6,
   },
 
   // ───── Level 3 ─────  Mystery twist: one tile's color is hidden.
@@ -89,6 +93,8 @@ export const LEVELS: LevelDef[] = [
       { color: "blue", capacity: 6 },
       { color: "green", capacity: 6 },
     ],
+    parTimeSec: 22,
+    parTaps: 6,
   },
 
   // ───── Level 4 ─────  Locked twist: a tile waits for a neighbor to clear.
@@ -111,6 +117,8 @@ export const LEVELS: LevelDef[] = [
       { color: "blue", capacity: 6 },
       { color: "green", capacity: 6 },
     ],
+    parTimeSec: 25,
+    parTaps: 6,
   },
 
   // ───── Level 5 ─────  All twists: counter, mystery, locked, plus 4 colors.
@@ -135,5 +143,7 @@ export const LEVELS: LevelDef[] = [
       { color: "green", capacity: 6 },
       { color: "yellow", capacity: 6 },
     ],
+    parTimeSec: 35,
+    parTaps: 9,
   },
 ];

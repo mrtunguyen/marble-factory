@@ -1,10 +1,10 @@
-// ConveyorSystem — shifts marbles right one slot per tick.
-// The rightmost slot, if occupied, is "emitted" and returned for the
-// ContainerSystem to route into a tube.
+// ConveyorSystem — advances marbles through logical conveyor slots.
+// Rendering can place those slots on a loop/oval; physics stops once a marble
+// enters the conveyor.
 import type { GameState, Marble } from "./types";
 
-/** Advance the conveyor by one tick. Returns the marble (if any) that just
- *  fell off the right end. The caller should hand it to ContainerSystem. */
+/** Advance the conveyor by one tick. Returns the marble (if any) that reached
+ *  the sorting exit. The caller should hand it to ContainerSystem. */
 export function tickConveyor(state: GameState): Marble | null {
   const c = state.conveyor;
   const last = c.length - 1;

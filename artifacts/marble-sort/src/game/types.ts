@@ -2,7 +2,7 @@
 //
 // Three layers:
 //   1. GRID    — chunky candy-block tiles that decompose into marbles when tapped
-//   2. CONVEYOR — horizontal pipe with N slots, marbles shift left → right one per tick
+//   2. CONVEYOR — 16-slot loop, marbles advance by logic one slot per tick
 //   3. TUBES    — vertical sorting containers, each capped with a target color
 
 export type MarbleColor =
@@ -67,7 +67,7 @@ export interface GameState {
   rows: number;
   tiles: (GridTile | null)[][];
   pendingEject: Marble[];          // marbles waiting to enter conveyor
-  conveyor: (Marble | null)[];     // index 0 = leftmost
+  conveyor: (Marble | null)[];     // index 0 = entry, last index = sorting exit
   tubes: Tube[];
   status: "playing" | "won" | "lost";
   nextMarbleId: number;

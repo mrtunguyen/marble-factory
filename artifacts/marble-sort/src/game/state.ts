@@ -10,6 +10,7 @@ import type {
 import { refreshLocks, isGridEmpty } from "./gridManager";
 import { injectFromQueue } from "./movementSystem";
 import { tickConveyor, isConveyorEmpty } from "./conveyorSystem";
+import { MAX_CONVEYOR_CAPACITY } from "./constants";
 import {
   routeMarble,
   allTubesCorrect,
@@ -46,12 +47,17 @@ export function buildGameState(def: LevelDef): GameState {
     marbles: [],
   }));
 
+  const conveyorCapacity = Math.min(
+    def.conveyorCapacity,
+    MAX_CONVEYOR_CAPACITY,
+  );
+
   const state: GameState = {
     cols: def.cols,
     rows: def.rows,
     tiles,
     pendingEject: [],
-    conveyor: new Array(def.conveyorCapacity).fill(null),
+    conveyor: new Array(conveyorCapacity).fill(null),
     tubes,
     status: "playing",
     nextMarbleId: 1,
@@ -101,7 +107,7 @@ export function restoreSnapshot(
  *  the corresponding visuals. */
 export interface TickResult {
   injected: Marble | null;       // marble that entered conveyor[0] this tick
-  emitted: Marble | null;        // marble that fell off the right end
+  emitted: Marble | null;        // marble that reached the sorting exit
   routed: RouteResult | null;    // routing outcome for the emitted marble
   statusChanged: boolean;        // status moved from "playing" to won/lost
 }
@@ -113,10 +119,10 @@ export function tick(state: GameState): TickResult {
     return { injected: null, emitted: null, routed: null, statusChanged: false };
   }
 
-  // 1. Drain rightmost slot — emit before shifting so we don't lose it.
+  // 1. Drain the sorting exit before shifting so we don't lose it.
   const emitted = tickConveyor(state);
 
-  // 2. Inject from pending-eject queue into the now-empty leftmost slot.
+  // 2. Inject from pending-eject queue into the entry slot.
   const injected = injectFromQueue(state);
 
   // 3. Route the emitted marble (if any) into a tube.

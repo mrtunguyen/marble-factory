@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import {
   GAME_WIDTH,
   GAME_HEIGHT,
+  DEFAULT_LIVES,
   SCENE_GAME,
   SCENE_MENU,
   UI_BG_TOP,
@@ -17,8 +18,9 @@ export class LevelCompleteScene extends Phaser.Scene {
     super("LevelCompleteScene");
   }
 
-  create(data: { levelId: number }): void {
+  create(data: { levelId: number; lives?: number }): void {
     const id = data?.levelId ?? 1;
+    const lives = data?.lives ?? DEFAULT_LIVES;
     const idx = LEVELS.findIndex((l) => l.id === id);
     const next = idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1] : null;
 
@@ -86,7 +88,7 @@ export class LevelCompleteScene extends Phaser.Scene {
 
     if (next) {
       this.makeButton(GAME_WIDTH / 2, 520, "NEXT LEVEL", 0x6dd35f, () => {
-        this.scene.start(SCENE_GAME, { levelId: next.id });
+        this.scene.start(SCENE_GAME, { levelId: next.id, lives });
       });
     } else {
       this.add
@@ -101,7 +103,7 @@ export class LevelCompleteScene extends Phaser.Scene {
     }
 
     this.makeButton(GAME_WIDTH / 2, 610, "REPLAY", 0x49b9ff, () =>
-      this.scene.start(SCENE_GAME, { levelId: id }),
+      this.scene.start(SCENE_GAME, { levelId: id, lives }),
     );
     this.makeButton(GAME_WIDTH / 2, 700, "MENU", 0xb472ff, () =>
       this.scene.start(SCENE_MENU),

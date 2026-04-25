@@ -16,6 +16,17 @@ function shuffleInPlace<T>(items: T[]): void {
   }
 }
 
+function randomContainer(state: GameState): MMC {
+  const colors = state.tubes.map((tube) => tube.color);
+  const color = colors[Math.floor(Math.random() * colors.length)] ?? "red";
+  return {
+    id: state.nextMarbleId++,
+    color,
+    capacity: MMC_CAPACITY,
+    marbles: [],
+  };
+}
+
 /** Build mixed lane queues from a level's tube specs. Each tube of capacity N
  * becomes `ceil(N / MMC_CAPACITY)` empty MMCs of that color, then MMCs are
  * shuffled and dealt round-robin across lanes so each tube gets a random stack. */
@@ -108,8 +119,9 @@ export interface ShipEvent {
   marbles: Marble[];
 }
 
-/** For each lane, if the active MMC is full, pop it off the queue and bump the
- * shipped counter. Returns ship events for the renderer to animate. */
+/** For each lane, if the active MMC is full, pop it off the queue, append a
+ * fresh random container at the bottom, and bump the shipped counter. Returns
+ * ship events for the renderer to animate. */
 export function shipFilledMMCs(state: GameState): ShipEvent[] {
   const events: ShipEvent[] = [];
   if (!state.lanes) return events;
@@ -121,6 +133,7 @@ export function shipFilledMMCs(state: GameState): ShipEvent[] {
 
     if (mmc.marbles.length >= mmc.capacity) {
       lane.queue.shift();
+      lane.queue.push(randomContainer(state));
       lane.shipped += 1;
       events.push({
         laneIndex: i,

@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import {
   GAME_WIDTH,
   GAME_HEIGHT,
+  DEFAULT_LIVES,
   SCENE_GAME,
   SCENE_MENU,
   UI_BG_TOP,
@@ -13,8 +14,11 @@ export class GameOverScene extends Phaser.Scene {
     super("GameOverScene");
   }
 
-  create(data: { levelId: number }): void {
+  create(data: { levelId: number; lives?: number; reason?: string }): void {
     const id = data?.levelId ?? 1;
+    const lives = data?.lives ?? DEFAULT_LIVES;
+    const reason =
+      data?.reason ?? "The conveyor was full while marbles waited.\nOne life lost.";
 
     const bg = this.add.graphics();
     bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
@@ -42,7 +46,7 @@ export class GameOverScene extends Phaser.Scene {
       .text(
         GAME_WIDTH / 2,
         450,
-        "A marble had nowhere to go.\nThe target tube was full.",
+        reason,
         {
           fontFamily: "Arial Black, sans-serif",
           fontSize: "16px",
@@ -54,9 +58,31 @@ export class GameOverScene extends Phaser.Scene {
       )
       .setOrigin(0.5);
 
-    this.makeButton(GAME_WIDTH / 2, 560, "RETRY", 0x6dd35f, () =>
-      this.scene.start(SCENE_GAME, { levelId: id }),
-    );
+    this.add
+      .text(GAME_WIDTH / 2, 505, `Lives left: ${lives}`, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "18px",
+        color: "#ffd84a",
+        stroke: "#7e3a00",
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5);
+
+    if (lives > 0) {
+      this.makeButton(GAME_WIDTH / 2, 580, "RETRY", 0x6dd35f, () =>
+        this.scene.start(SCENE_GAME, { levelId: id, lives }),
+      );
+    } else {
+      this.add
+        .text(GAME_WIDTH / 2, 580, "OUT OF LIVES", {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "24px",
+          color: "#ff7676",
+          stroke: "#5e2e91",
+          strokeThickness: 5,
+        })
+        .setOrigin(0.5);
+    }
     this.makeButton(GAME_WIDTH / 2, 650, "MENU", 0xb472ff, () =>
       this.scene.start(SCENE_MENU),
     );

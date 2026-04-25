@@ -31,11 +31,6 @@ export function drawTile(
     : isLocked
       ? 0x7a6a99
       : MARBLE_COLORS[tile.color];
-  const colorDark = isHidden
-    ? 0x6e6e6e
-    : isLocked
-      ? 0x4f4373
-      : MARBLE_COLORS_DARK[tile.color];
   const colorLight = isHidden
     ? 0xc4c4c4
     : isLocked
@@ -49,20 +44,6 @@ export function drawTile(
   // Top highlight (lighter band)
   g.fillStyle(colorLight, 0.6);
   g.fillRoundedRect(-half + 3, -half + 3, size - 6, size * 0.32, r * 0.7);
-
-  // Dot pattern (3x3 grid of dots) — like bubble wrap
-  const dotR = size * 0.07;
-  const dotSpacing = size * 0.22;
-  for (let dr = -1; dr <= 1; dr++) {
-    for (let dc = -1; dc <= 1; dc++) {
-      const dx = dc * dotSpacing;
-      const dy = dr * dotSpacing;
-      g.fillStyle(colorDark, 0.5);
-      g.fillCircle(dx + 1, dy + 1, dotR);
-      g.fillStyle(colorLight, 0.85);
-      g.fillCircle(dx - 1, dy - 1, dotR * 0.6);
-    }
-  }
 }
 
 // Draw a single marble centered at (0, 0)

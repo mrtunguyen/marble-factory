@@ -11,7 +11,7 @@ import { refreshLocks, isGridEmpty } from "./gridManager";
 import { injectFromQueue } from "./movementSystem";
 import { tickConveyor, isConveyorEmpty } from "./conveyorSystem";
 import { MAX_CONVEYOR_CAPACITY } from "./constants";
-import { buildLanesFromTubes, allLanesComplete, pickupFromConveyor, shipFilledMMCs, type PickupEvent, type ShipEvent } from "./laneSystem";
+import { buildLanesFromTubes, pickupFromConveyor, shipFilledMMCs, type PickupEvent, type ShipEvent } from "./laneSystem";
 
 function shuffledTubes(def: LevelDef): Tube[] {
   const tubes: Tube[] = def.tubes.map((s) => ({
@@ -164,12 +164,12 @@ export function tick(
   const pickups = pickupFromConveyor(state, laneSlotIndex);
   const shipped = shipFilledMMCs(state);
 
-  // 4. Win check: grid empty, queue empty, conveyor empty, all MMCs complete.
+  // 4. Win check: containers are replenished forever, so completion only
+  // depends on all released marbles being sorted and no tiles remaining.
   if (
     isGridEmpty(state) &&
     state.pendingEject.length === 0 &&
-    isConveyorEmpty(state) &&
-    allLanesComplete(state)
+    isConveyorEmpty(state)
   ) {
     state.status = "won";
     return { injected, emitted, pickups, shipped, statusChanged: true };

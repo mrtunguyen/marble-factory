@@ -11,8 +11,11 @@ import {
   TUBE_GAP,
   MARBLE_ANIM_MS,
   MARBLE_COLORS,
+  DEFAULT_LIVES,
   SCENE_MENU,
   SCENE_COMPLETE,
+  SCENE_GAMEOVER,
+  STALL_FAIL_MS,
   UI_BG_TOP,
   UI_BG_BOTTOM,
   UI_GRID_BG,
@@ -69,12 +72,17 @@ export class GameScene extends Phaser.Scene {
   private lanesY = 0;
   private shippingLaneIds: Set<number> = new Set();
   private mmcExitDepth = 20;
+  private lives = DEFAULT_LIVES;
+  private livesText!: Phaser.GameObjects.Text;
+  private stallText!: Phaser.GameObjects.Text;
+  private conveyorBlockedSince = 0;
+  private hasFailedForStall = false;
 
   constructor() {
     super("GameScene");
   }
 
-  init(data: { levelId?: number; level?: LevelDef }): void {
+  init(data: { levelId?: number; level?: LevelDef; lives?: number }): void {
     if (data?.level) {
       this.level = data.level;
     } else {
@@ -89,6 +97,13 @@ export class GameScene extends Phaser.Scene {
     this.lastTickAt = 0;
     this.shippingLaneIds = new Set();
     this.mmcExitDepth = 20;
+    this.lives =
+      data?.lives ??
+      (this.registry.get("lives") as number | undefined) ??
+      DEFAULT_LIVES;
+    this.registry.set("lives", this.lives);
+    this.conveyorBlockedSince = 0;
+    this.hasFailedForStall = false;
   }
 
   create(): void {
@@ -113,6 +128,16 @@ export class GameScene extends Phaser.Scene {
         strokeThickness: 3,
       })
       .setOrigin(0.5, 0);
+    this.stallText = this.add
+      .text(GAME_WIDTH / 2, 84, "", {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "13px",
+        color: "#ffd84a",
+        stroke: "#7e3a00",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0);
+    this.conveyorBlockedSince = 0;
   }
 
   // ─────────────────────────── TOP BAR ───────────────────────────
@@ -145,6 +170,16 @@ export class GameScene extends Phaser.Scene {
     this.makeIconButton(GAME_WIDTH - 36, barH / 2, "↻", () =>
       this.handleRestart(),
     );
+
+    this.livesText = this.add
+      .text(GAME_WIDTH - 138, barH / 2, `Lives ${this.lives}`, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "13px",
+        color: "#ffffff",
+        stroke: "#5e2e91",
+        strokeThickness: 3,
+      })
+      .setOrigin(1, 0.5);
   }
 
   private makeIconButton(
@@ -343,19 +378,6 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       container.add(lockIcon);
-    } else {
-      // Show remaining-marble dots in the corner for normal/revealed/unlocked.
-      const dotsG = this.add.graphics();
-      const total = this.state.marblesPerBlock;
-      const dotR = 4;
-      const startX = -TILE_SIZE / 2 + 8;
-      const yPos = TILE_SIZE / 2 - 8;
-      for (let i = 0; i < total; i++) {
-        const filled = i < tile.marblesLeft;
-        dotsG.fillStyle(filled ? 0xffffff : 0x000000, filled ? 0.85 : 0.25);
-        dotsG.fillCircle(startX + i * (dotR * 2 + 2), yPos, dotR);
-      }
-      container.add(dotsG);
     }
 
     container.setSize(TILE_SIZE, TILE_SIZE);
@@ -454,7 +476,7 @@ export class GameScene extends Phaser.Scene {
     this.lanesY = 560;
     const panelG = this.add.graphics();
     panelG.fillStyle(0x4a328a, 0.28);
-    panelG.fillRoundedRect(20, this.lanesY - 16, GAME_WIDTH - 40, 280, 24);
+    panelG.fillRoundedRect(20, this.lanesY - 16, GAME_WIDTH - 40, 250, 24);
 
     for (let i = 0; i < lanes.length; i++) {
       this.drawMMCLane(i);
@@ -480,12 +502,12 @@ export class GameScene extends Phaser.Scene {
     const holeRadius = CONVEYOR_MARBLE_RADIUS * 0.42;
 
     lane.queue.slice(0, 4).forEach((mmc, queueIndex) => {
-      const py = y + 24 + queueIndex * 44;
+      const py = y + 28 + queueIndex * 46;
       const isActive = queueIndex === 0;
       g.fillStyle(MARBLE_COLORS[mmc.color], isActive ? 1 : 0.42);
-      g.fillRoundedRect(x - 22, py - 16, 44, 32, 8);
+      g.fillRoundedRect(x - 42, py - 20, 84, 40, 10);
       g.lineStyle(2, 0xffffff, isActive ? 0.95 : 0.45);
-      g.strokeRoundedRect(x - 22, py - 16, 44, 32, 8);
+      g.strokeRoundedRect(x - 42, py - 20, 84, 40, 10);
 
       if (isActive) {
         for (let j = 0; j < MMC_CAPACITY; j++) {
@@ -498,17 +520,6 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    const countText = this.add
-      .text(x, y + 228, `${lane.shipped}`, {
-        fontFamily: "Arial Black, sans-serif",
-        fontSize: "13px",
-        color: "#ffffff",
-        stroke: "#5e2e91",
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5)
-      .setName(`laneCount-${i}`);
-    container.add(countText);
   }
 
   private laneX(i: number): number {
@@ -539,19 +550,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   private mmcMarblePos(laneIdx: number, j: number): { x: number; y: number } {
-    const holePadding = 7;
-    const mmcWidth = 44;
+    const holePadding = 13;
+    const mmcWidth = 84;
     const availableWidth = mmcWidth - holePadding * 2;
     const step = availableWidth / Math.max(1, MMC_CAPACITY - 1);
     return {
       x: this.laneX(laneIdx) - mmcWidth / 2 + holePadding + j * step,
-      y: this.lanesY + 24,
+      y: this.lanesY + 28,
     };
   }
 
   private animateMMCExit(ship: ShipEvent): void {
     const laneX = this.laneX(ship.laneIndex);
-    const shellY = this.lanesY + 24;
+    const shellY = this.lanesY + 28;
     const side = this.mmcExitSide(laneX);
     const exitX = side === "left" ? -70 : GAME_WIDTH + 70;
     const depth = ++this.mmcExitDepth;
@@ -559,9 +570,9 @@ export class GameScene extends Phaser.Scene {
     const shell = this.add.container(laneX, shellY).setDepth(depth);
     const g = this.add.graphics();
     g.fillStyle(MARBLE_COLORS[ship.color], 1);
-    g.fillRoundedRect(-22, -16, 44, 32, 8);
+    g.fillRoundedRect(-42, -20, 84, 40, 10);
     g.lineStyle(2, 0xffffff, 0.95);
-    g.strokeRoundedRect(-22, -16, 44, 32, 8);
+    g.strokeRoundedRect(-42, -20, 84, 40, 10);
     shell.add(g);
 
     this.shippingLaneIds.delete(ship.laneIndex);
@@ -691,11 +702,15 @@ export class GameScene extends Phaser.Scene {
     if (this.state.history.length === 0) return;
     const snap = this.state.history.pop()!;
     restoreSnapshot(this.state, snap);
+    this.conveyorBlockedSince = 0;
+    this.stallText.setText("");
     this.fullRebuild();
   }
 
   private handleRestart(): void {
     this.state = buildGameState(this.level);
+    this.conveyorBlockedSince = 0;
+    this.stallText.setText("");
     this.fullRebuild();
   }
 
@@ -732,6 +747,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.statusText.setText("");
+    this.stallText.setText("");
   }
 
   private flashStatus(msg: string): void {
@@ -746,8 +762,60 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private updateStallTimer(time: number): void {
+    if (this.hasFailedForStall) return;
+
+    const conveyorFull = this.state.conveyor.every((slot) => slot !== null);
+    const dropBlocked = this.state.pendingEject.length > 0 && conveyorFull;
+    if (!dropBlocked) {
+      this.conveyorBlockedSince = 0;
+      this.stallText.setText("");
+      return;
+    }
+
+    if (this.conveyorBlockedSince === 0) {
+      this.conveyorBlockedSince = time;
+      return;
+    }
+
+    const elapsed = time - this.conveyorBlockedSince;
+    const remaining = STALL_FAIL_MS - elapsed;
+    if (remaining <= 0) {
+      this.failFromStall();
+      return;
+    }
+
+    if (remaining <= 3000) {
+      this.stallText.setText(
+        `Conveyor full: ${Math.ceil(remaining / 1000)}s`,
+      );
+    } else {
+      this.stallText.setText("");
+    }
+  }
+
+  private failFromStall(): void {
+    if (this.hasFailedForStall) return;
+    this.hasFailedForStall = true;
+    this.state.status = "lost";
+    this.lives = Math.max(0, this.lives - 1);
+    this.registry.set("lives", this.lives);
+    this.livesText.setText(`Lives ${this.lives}`);
+    this.stallText.setText("Conveyor jam!");
+
+    this.time.delayedCall(600, () => {
+      this.scene.start(SCENE_GAMEOVER, {
+        levelId: this.level.id,
+        lives: this.lives,
+        reason: "The conveyor was full while marbles waited.\nOne life lost.",
+      });
+    });
+  }
+
   // ─────────────────────────── TICK LOOP ───────────────────────────
   update(time: number): void {
+    if (this.state.status !== "playing") return;
+    this.updateStallTimer(time);
     if (this.state.status !== "playing") return;
     if (this.lastTickAt === 0) this.lastTickAt = time;
     if (time - this.lastTickAt < this.state.tickMs) return;
@@ -845,7 +913,10 @@ export class GameScene extends Phaser.Scene {
     if (result.statusChanged) {
       this.time.delayedCall(700, () => {
         if (this.state.status === "won") {
-          this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
+          this.scene.start(SCENE_COMPLETE, {
+            levelId: this.level.id,
+            lives: this.lives,
+          });
         }
       });
     }

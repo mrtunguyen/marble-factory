@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm --version)",
+      "Bash(npm --version)",
+      "Bash(corepack --version)",
+      "Bash(corepack enable *)",
+      "PowerShell($env:PNPM_VERSION=\"latest\"; iwr https://get.pnpm.io/install.ps1 -useb | iex)",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\pnpm\\\\pnpm.exe\" --version)",
+      "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\pnpm\" -ErrorAction SilentlyContinue | Select-Object Name)",
+      "Read(//c/Users/ilyas/AppData/Local/pnpm//**)",
+      "Read(//c/Users/ilyas/AppData/Local/pnpm/.tools/pnpm-exe//**)",
+      "Bash(\"/c/Users/ilyas/AppData/Local/pnpm/pnpm\" --version)",
+      "Bash(\"/c/Users/ilyas/AppData/Local/pnpm/pnpm\" install *)",
+      "Bash(\"/c/Users/ilyas/AppData/Local/pnpm/pnpm\" exec *)",
+      "Bash(git checkout *)",
+      "Bash(\"/c/Users/ilyas/AppData/Local/pnpm/pnpm\" -w install --force)",
+      "Bash(\"/c/Users/ilyas/AppData/Local/pnpm/pnpm\" --filter @workspace/marble-sort dev)"
+    ]
+  }
+}

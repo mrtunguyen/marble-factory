@@ -12,8 +12,9 @@ import {
   DEFAULT_CONVEYOR_CAPACITY,
   DEFAULT_MARBLES_PER_BLOCK,
   DEFAULT_TICK_MS,
+  DEFAULT_TUBE_CAPACITY,
 } from "./constants";
-import type { LevelDef, LevelTile } from "./types";
+import type { LevelDef, LevelTile, TubeSpec } from "./types";
 
 // Helpers for compact level authoring.
 const B = (color: LevelTile["color"]): LevelTile => ({ kind: "block", color });
@@ -31,64 +32,66 @@ const L = (color: LevelTile["color"]): LevelTile => ({
   color,
 });
 
+const fourTubes = (): TubeSpec[] => [
+  { color: "red", capacity: DEFAULT_TUBE_CAPACITY },
+  { color: "blue", capacity: DEFAULT_TUBE_CAPACITY },
+  { color: "green", capacity: DEFAULT_TUBE_CAPACITY },
+  { color: "yellow", capacity: DEFAULT_TUBE_CAPACITY },
+];
+
 export const LEVELS: LevelDef[] = [
-  // ───── Level 1 ─────  Pure intro: tap blocks → marbles flow → 2 tubes fill.
+  // ───── Level 1 ─────  Pure intro: 4 tubes, 4 containers each.
   {
     id: 1,
     name: "Trickle Start",
-    cols: 2,
-    rows: 2,
+    cols: 4,
+    rows: 4,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: DEFAULT_TICK_MS,
     tiles: [
-      [B("red"), B("blue")],
-      [B("blue"), B("red")],
+      [B("red"), B("blue"), B("green"), B("yellow")],
+      [B("blue"), B("green"), B("yellow"), B("red")],
+      [B("green"), B("yellow"), B("red"), B("blue")],
+      [B("yellow"), B("red"), B("blue"), B("green")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-    ],
+    tubes: fourTubes(),
   },
 
   // ───── Level 2 ─────  Counter twist: a single counter-2 tile.
   {
     id: 2,
     name: "Hold the Line",
-    cols: 3,
-    rows: 2,
+    cols: 4,
+    rows: 4,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: DEFAULT_TICK_MS,
     tiles: [
-      [B("red"), B("blue"), B("green")],
-      [B("blue"), C("green", 2), B("red")],
+      [B("red"), B("blue"), B("green"), B("yellow")],
+      [B("blue"), C("green", 2), B("yellow"), B("red")],
+      [B("green"), B("yellow"), B("red"), B("blue")],
+      [B("yellow"), B("red"), B("blue"), B("green")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
-    ],
+    tubes: fourTubes(),
   },
 
   // ───── Level 3 ─────  Mystery twist: one tile's color is hidden.
   {
     id: 3,
     name: "Mystery Cargo",
-    cols: 3,
-    rows: 2,
+    cols: 4,
+    rows: 4,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: DEFAULT_TICK_MS,
     tiles: [
-      [B("red"), B("blue"), B("green")],
-      [M("blue"), B("green"), B("red")],
+      [B("red"), B("blue"), B("green"), B("yellow")],
+      [M("blue"), B("green"), B("yellow"), B("red")],
+      [B("green"), B("yellow"), B("red"), B("blue")],
+      [B("yellow"), B("red"), B("blue"), B("green")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
-    ],
+    tubes: fourTubes(),
   },
 
   // ───── Level 4 ─────  Locked twist: a tile waits for a neighbor to clear.
@@ -97,43 +100,38 @@ export const LEVELS: LevelDef[] = [
   {
     id: 4,
     name: "Padlock",
-    cols: 3,
-    rows: 2,
+    cols: 4,
+    rows: 4,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: DEFAULT_TICK_MS,
     tiles: [
-      [L("red"), B("blue"), B("green")],
-      [B("blue"), B("green"), B("red")],
+      [L("red"), B("blue"), B("green"), B("yellow")],
+      [B("blue"), B("green"), B("yellow"), B("red")],
+      [B("green"), B("yellow"), B("red"), B("blue")],
+      [B("yellow"), B("red"), B("blue"), B("green")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
-    ],
+    tubes: fourTubes(),
   },
 
   // ───── Level 5 ─────  All twists: counter, mystery, locked, plus 4 colors.
-  // Colors: red×2, blue×2, green×2, yellow×2  →  4 tubes capacity 6.
+  // Colors: red×4, blue×4, green×4, yellow×4  →  4 tubes capacity 12.
   // Locked yellow at (0,3) — neighbor red (0,2 mystery) or red (1,3) clears
   // first; counter-3 green at (1,1).
   {
     id: 5,
     name: "Factory Rush",
     cols: 4,
-    rows: 2,
+    rows: 4,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: 220,
     tiles: [
       [B("blue"), B("green"), M("red"), L("yellow")],
       [B("yellow"), C("green", 3), B("blue"), B("red")],
+      [B("red"), B("blue"), B("green"), B("yellow")],
+      [B("yellow"), B("green"), B("blue"), B("red")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
-      { color: "yellow", capacity: 6 },
-    ],
+    tubes: fourTubes(),
   },
 ];

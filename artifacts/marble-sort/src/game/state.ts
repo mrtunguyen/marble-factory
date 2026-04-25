@@ -13,6 +13,19 @@ import { tickConveyor, isConveyorEmpty } from "./conveyorSystem";
 import { MAX_CONVEYOR_CAPACITY } from "./constants";
 import { buildLanesFromTubes, allLanesComplete, pickupFromConveyor, shipFilledMMCs, type PickupEvent, type ShipEvent } from "./laneSystem";
 
+function shuffledTubes(def: LevelDef): Tube[] {
+  const tubes: Tube[] = def.tubes.map((s) => ({
+    color: s.color,
+    capacity: s.capacity,
+    marbles: [],
+  }));
+  for (let i = tubes.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [tubes[i], tubes[j]] = [tubes[j], tubes[i]];
+  }
+  return tubes;
+}
+
 /** Build a fresh GameState from a level definition. */
 export function buildGameState(def: LevelDef): GameState {
   const tiles: (GridTile | null)[][] = [];
@@ -37,17 +50,13 @@ export function buildGameState(def: LevelDef): GameState {
     tiles.push(row);
   }
 
-  const tubes: Tube[] = def.tubes.map((s) => ({
-    color: s.color,
-    capacity: s.capacity,
-    marbles: [],
-  }));
+  const tubes = shuffledTubes(def);
 
   const conveyorCapacity = Math.min(
     def.conveyorCapacity,
     MAX_CONVEYOR_CAPACITY,
   );
-  const laneBuild = buildLanesFromTubes(def.tubes, 1);
+  const laneBuild = buildLanesFromTubes(tubes, 1);
 
   const state: GameState = {
     cols: def.cols,
@@ -141,11 +150,11 @@ export function tick(
     return { injected: null, emitted: null, pickups: [], shipped: [], statusChanged: false };
   }
 
-  // 1. Drain the sorting exit before shifting so we don't lose it.
+  // 1. Advance the conveyor loop. A marble that misses its current container
+  // wraps back to the entry slot and can be picked up on a later pass.
   const emitted = tickConveyor(state);
   if (emitted) {
-    state.status = "lost";
-    return { injected: null, emitted, pickups: [], shipped: [], statusChanged: true };
+    state.conveyor[0] = emitted;
   }
 
   // 2. Inject from pending-eject queue into the entry slot.

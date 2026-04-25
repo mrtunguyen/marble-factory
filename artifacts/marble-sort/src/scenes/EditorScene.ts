@@ -31,7 +31,7 @@ interface PaintMode {
 }
 
 const EDITOR_COLS = 4;
-const EDITOR_ROWS = 3;
+const EDITOR_ROWS = 4;
 const CELL = 56;
 const CELL_GAP = 6;
 
@@ -57,6 +57,7 @@ export class EditorScene extends Phaser.Scene {
       { color: "red", capacity: DEFAULT_TUBE_CAPACITY },
       { color: "blue", capacity: DEFAULT_TUBE_CAPACITY },
       { color: "green", capacity: DEFAULT_TUBE_CAPACITY },
+      { color: "yellow", capacity: DEFAULT_TUBE_CAPACITY },
     ];
     this.mode = { kind: "block", color: "red" };
 
@@ -200,7 +201,7 @@ export class EditorScene extends Phaser.Scene {
 
   // ─────────── PALETTE ───────────
   private buildPalette(): void {
-    const top = 380;
+    const top = 405;
     this.add
       .text(GAME_WIDTH / 2, top, "PAINT", {
         fontFamily: "Arial Black, sans-serif",
@@ -309,7 +310,7 @@ export class EditorScene extends Phaser.Scene {
 
   // ─────────── TUBES EDITOR ───────────
   private buildTubesEditor(): void {
-    const top = 600;
+    const top = 625;
     this.add
       .text(GAME_WIDTH / 2, top, "TUBES (tap to cycle color, +/- to add/remove)", {
         fontFamily: "Arial Black, sans-serif",
@@ -370,8 +371,9 @@ export class EditorScene extends Phaser.Scene {
       c.setInteractive({ useHandCursor: true });
       c.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
         if (pointer.rightButtonDown()) {
-          // cycle capacity 3 → 6 → 9
-          tube.capacity = tube.capacity === 9 ? 3 : tube.capacity + 3;
+          // cycle capacity 3 → 6 → 9 → 12
+          tube.capacity =
+            tube.capacity === DEFAULT_TUBE_CAPACITY ? 3 : tube.capacity + 3;
         } else {
           // cycle color
           const idx = ALL_COLORS.indexOf(tube.color);

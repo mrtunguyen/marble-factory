@@ -9,9 +9,16 @@
 import type { GameState, Lane, Marble, MMC, TubeSpec } from "./types";
 import { MMC_CAPACITY } from "./constants";
 
+function shuffleInPlace<T>(items: T[]): void {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+}
+
 /** Build mixed lane queues from a level's tube specs. Each tube of capacity N
  * becomes `ceil(N / MMC_CAPACITY)` empty MMCs of that color, then MMCs are
- * dealt round-robin across lanes so lanes are not color-sorted. */
+ * shuffled and dealt round-robin across lanes so each tube gets a random stack. */
 export function buildLanesFromTubes(
   tubes: TubeSpec[],
   startMMCId: number,
@@ -36,6 +43,7 @@ export function buildLanesFromTubes(
       });
     }
   });
+  shuffleInPlace(mmcs);
 
   mmcs.forEach((mmc, i) => {
     lanes[i % laneCount].queue.push(mmc);

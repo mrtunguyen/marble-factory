@@ -13,7 +13,6 @@ import {
   MARBLE_COLORS,
   SCENE_MENU,
   SCENE_COMPLETE,
-  SCENE_GAMEOVER,
   UI_BG_TOP,
   UI_BG_BOTTOM,
   UI_GRID_BG,
@@ -188,7 +187,7 @@ export class GameScene extends Phaser.Scene {
     const panelX = (GAME_WIDTH - panelW) / 2;
     const panelY = 76;
     const panelBottom = panelY + panelH;
-    const funnelBottomY = 382;
+    const funnelBottomY = 430;
     const throatW = 82;
 
     const g = this.add.graphics();
@@ -392,7 +391,7 @@ export class GameScene extends Phaser.Scene {
   private drawConveyor(): void {
     const innerW = GAME_WIDTH - CONVEYOR_MARGIN_X * 2;
     const x = CONVEYOR_MARGIN_X;
-    const y = 392;
+    const y = 442;
     this.conveyorX = x;
     this.conveyorY = y;
     this.conveyorWidth = innerW;
@@ -452,7 +451,7 @@ export class GameScene extends Phaser.Scene {
     const lanes = this.state.lanes ?? [];
     if (lanes.length === 0) return;
 
-    this.lanesY = 520;
+    this.lanesY = 560;
     const panelG = this.add.graphics();
     panelG.fillStyle(0x4a328a, 0.28);
     panelG.fillRoundedRect(20, this.lanesY - 16, GAME_WIDTH - 40, 280, 24);
@@ -842,30 +841,11 @@ export class GameScene extends Phaser.Scene {
       });
     });
 
-    // 4. A marble that reaches the conveyor exit was not taken by an MMC.
-    if (result.emitted) {
-      const spr = this.marbleSprites.get(result.emitted.id);
-      if (spr) {
-        this.tweens.add({
-          targets: spr.container,
-          x: spr.container.x + 60,
-          y: spr.container.y + 200,
-          alpha: 0,
-          angle: 90,
-          duration: 600,
-          ease: "Cubic.in",
-        });
-      }
-        // Routing failed — animate marble dropping away from the sorting exit.
-    }
-
-    // 5. Status transitions
+    // 4. Status transitions
     if (result.statusChanged) {
       this.time.delayedCall(700, () => {
         if (this.state.status === "won") {
           this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
-        } else if (this.state.status === "lost") {
-          this.scene.start(SCENE_GAMEOVER, { levelId: this.level.id });
         }
       });
     }

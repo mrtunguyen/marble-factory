@@ -10,11 +10,11 @@ import {
   TUBE_WIDTH,
   TUBE_GAP,
   TUBE_MARBLE_DIAMETER,
+  TUBE_SLOT_GAP,
   TUBE_CAP_HEIGHT,
   TUBE_BOTTOM_HEIGHT,
   TUBE_PADDING,
   MARBLE_ANIM_MS,
-  MARBLE_COLORS,
   SCENE_MENU,
   SCENE_COMPLETE,
   SCENE_GAMEOVER,
@@ -27,18 +27,28 @@ import {
   UI_PIPE_BG,
   UI_PIPE_BORDER,
   UI_PIPE_TRACK,
+  UI_TUBE_RACK,
+  UI_TUBE_RACK_BORDER,
   UI_TUBE_SLOT_EMPTY,
   UI_TUBE_SLOT_BORDER,
 } from "../game/constants";
 import { LEVELS } from "../game/levels";
-import { drawTile, drawMarble, drawConveyorPipe, drawTube } from "../game/draw";
+import {
+  drawTile,
+  drawMarble,
+  drawTubeMarble,
+  drawConveyorPipe,
+  drawTube,
+} from "../game/draw";
 import {
   buildGameState,
   snapshot,
   restoreSnapshot,
   tick,
+  allTubesCorrect,
 } from "../game/state";
 import { tapTile } from "../game/gridManager";
+import { moveTopGroup } from "../game/containerSystem";
 import type { GameState, GridTile, LevelDef, Marble } from "../game/types";
 
 interface TileSprite {
@@ -64,6 +74,8 @@ export class GameScene extends Phaser.Scene {
   private isAnimating = false; // blocks taps during snapshot animations
   private lastTickAt = 0;
   private statusText!: Phaser.GameObjects.Text;
+  private selectedTubeIndex: number | null = null;
+  private tubeSelection?: Phaser.GameObjects.Graphics;
   private gridOriginX = 0;
   private gridOriginY = 0;
   private conveyorX = 0; // left edge of inner pipe
@@ -88,6 +100,7 @@ export class GameScene extends Phaser.Scene {
     this.marbleSprites = new Map();
     this.isAnimating = false;
     this.lastTickAt = 0;
+    this.selectedTubeIndex = null;
   }
 
   create(): void {
@@ -451,21 +464,29 @@ export class GameScene extends Phaser.Scene {
     const totalW = n * TUBE_WIDTH + (n - 1) * TUBE_GAP;
     const startX = (GAME_WIDTH - totalW) / 2;
     const capacity = Math.max(...this.state.tubes.map((t) => t.capacity));
-    const bodyHeight = capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
-    const top = 510;
+    const bodyHeight =
+      capacity * TUBE_MARBLE_DIAMETER + (capacity - 1) * TUBE_SLOT_GAP;
+    const top = 486;
     this.tubesY = top;
 
     // Panel behind tubes
     const panelG = this.add.graphics();
-    const panelH = TUBE_CAP_HEIGHT + bodyHeight + TUBE_BOTTOM_HEIGHT + 30;
-    panelG.fillStyle(0x4a328a, 0.4);
-    panelG.fillRoundedRect(20, top - 16, GAME_WIDTH - 40, panelH, 24);
+    const panelH = TUBE_CAP_HEIGHT + bodyHeight + TUBE_BOTTOM_HEIGHT + 34;
+    panelG.fillStyle(UI_TUBE_RACK_BORDER, 1);
+    panelG.fillRoundedRect(22, top - 15, GAME_WIDTH - 44, panelH, 24);
+    panelG.fillStyle(UI_TUBE_RACK, 1);
+    panelG.fillRoundedRect(28, top - 9, GAME_WIDTH - 56, panelH - 12, 20);
+    panelG.fillStyle(0xffffff, 0.25);
+    panelG.fillRoundedRect(36, top - 1, GAME_WIDTH - 72, 26, 16);
 
     for (let i = 0; i < n; i++) {
       const tube = this.state.tubes[i];
       const x = startX + i * (TUBE_WIDTH + TUBE_GAP);
       const y = top + 12;
-      const tubeBodyH = tube.capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
+      const tubeBodyH =
+        tube.capacity * TUBE_MARBLE_DIAMETER +
+        (tube.capacity - 1) * TUBE_SLOT_GAP +
+        TUBE_PADDING * 2;
       const g = this.add.graphics();
       drawTube(
         g,
@@ -477,23 +498,55 @@ export class GameScene extends Phaser.Scene {
         TUBE_BOTTOM_HEIGHT,
         tube.color,
       );
-      // Capacity hint at the bottom: "0 / 6"
-      this.add
-        .text(
+
+      const hitZone = this.add
+        .zone(
           x + TUBE_WIDTH / 2,
-          y + TUBE_CAP_HEIGHT + tubeBodyH + TUBE_BOTTOM_HEIGHT + 8,
-          `${tube.marbles.length}/${tube.capacity}`,
-          {
-            fontFamily: "Arial Black, sans-serif",
-            fontSize: "13px",
-            color: "#ffffff",
-            stroke: "#5e2e91",
-            strokeThickness: 3,
-          },
+          y + (TUBE_CAP_HEIGHT + tubeBodyH) / 2,
+          TUBE_WIDTH,
+          TUBE_CAP_HEIGHT + tubeBodyH,
         )
-        .setOrigin(0.5)
-        .setName(`tubeCount-${i}`);
+        .setInteractive({ useHandCursor: true });
+      hitZone.on("pointerdown", () => this.handleTubeTap(i));
     }
+  }
+
+  private tubeRect(tubeIdx: number): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    const n = this.state.tubes.length;
+    const totalW = n * TUBE_WIDTH + (n - 1) * TUBE_GAP;
+    const startX = (GAME_WIDTH - totalW) / 2;
+    const tube = this.state.tubes[tubeIdx];
+    const bodyHeight =
+      tube.capacity * TUBE_MARBLE_DIAMETER +
+      (tube.capacity - 1) * TUBE_SLOT_GAP +
+      TUBE_PADDING * 2;
+    return {
+      x: startX + tubeIdx * (TUBE_WIDTH + TUBE_GAP),
+      y: this.tubesY + 12,
+      width: TUBE_WIDTH,
+      height: TUBE_CAP_HEIGHT + bodyHeight + TUBE_BOTTOM_HEIGHT,
+    };
+  }
+
+  private redrawTubeSelection(): void {
+    this.tubeSelection?.destroy();
+    this.tubeSelection = undefined;
+
+    if (this.selectedTubeIndex === null) return;
+
+    const rect = this.tubeRect(this.selectedTubeIndex);
+    const g = this.add.graphics();
+    g.lineStyle(5, 0xffffff, 0.95);
+    g.strokeRoundedRect(rect.x - 7, rect.y - 7, rect.width + 14, rect.height + 14, 18);
+    g.lineStyle(3, 0xffd84a, 1);
+    g.strokeRoundedRect(rect.x - 3, rect.y - 3, rect.width + 6, rect.height + 6, 15);
+    g.setDepth(9);
+    this.tubeSelection = g;
   }
 
   // Position of the marble at slot j in tube i (j=0 bottom).
@@ -505,7 +558,10 @@ export class GameScene extends Phaser.Scene {
     const totalW = n * TUBE_WIDTH + (n - 1) * TUBE_GAP;
     const startX = (GAME_WIDTH - totalW) / 2;
     const tube = this.state.tubes[tubeIdx];
-    const tubeBodyH = tube.capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
+    const tubeBodyH =
+      tube.capacity * TUBE_MARBLE_DIAMETER +
+      (tube.capacity - 1) * TUBE_SLOT_GAP +
+      TUBE_PADDING * 2;
     const baseY =
       this.tubesY +
       12 +
@@ -515,16 +571,12 @@ export class GameScene extends Phaser.Scene {
       TUBE_MARBLE_DIAMETER / 2;
     return {
       x: startX + tubeIdx * (TUBE_WIDTH + TUBE_GAP) + TUBE_WIDTH / 2,
-      y: baseY - j * TUBE_MARBLE_DIAMETER,
+      y: baseY - j * (TUBE_MARBLE_DIAMETER + TUBE_SLOT_GAP),
     };
   }
 
   private updateTubeCount(i: number): void {
-    const t = this.state.tubes[i];
-    const txt = this.children.getByName(`tubeCount-${i}`) as
-      | Phaser.GameObjects.Text
-      | null;
-    if (txt) txt.setText(`${t.marbles.length}/${t.capacity}`);
+    void i;
   }
 
   // ─────────────────────────── MARBLE SPRITES ───────────────────────────
@@ -538,6 +590,32 @@ export class GameScene extends Phaser.Scene {
     return spr;
   }
 
+  private spawnTubeMarbleSprite(
+    marble: Marble,
+    x: number,
+    y: number,
+  ): MarbleSprite {
+    const g = this.add.graphics();
+    drawTubeMarble(g, TUBE_WIDTH - 10, TUBE_MARBLE_DIAMETER, marble.color);
+    const c = this.add.container(x, y, [g]);
+    c.setDepth(10);
+    const spr: MarbleSprite = { container: c, marble };
+    this.marbleSprites.set(marble.id, spr);
+    return spr;
+  }
+
+  private morphSpriteToTubeMarble(spr: MarbleSprite): void {
+    spr.container.removeAll(true);
+    const g = this.add.graphics();
+    drawTubeMarble(
+      g,
+      TUBE_WIDTH - 10,
+      TUBE_MARBLE_DIAMETER,
+      spr.marble.color,
+    );
+    spr.container.add(g);
+  }
+
   private destroyMarbleSprite(id: number): void {
     const spr = this.marbleSprites.get(id);
     if (spr) {
@@ -547,6 +625,40 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────── INTERACTION ───────────────────────────
+  private handleTubeTap(tubeIdx: number): void {
+    if (this.state.status !== "playing") return;
+
+    if (this.selectedTubeIndex === null) {
+      if (this.state.tubes[tubeIdx].marbles.length === 0) {
+        this.flashStatus("Empty");
+        return;
+      }
+      this.selectedTubeIndex = tubeIdx;
+      this.redrawTubeSelection();
+      return;
+    }
+
+    const sourceIdx = this.selectedTubeIndex;
+    if (sourceIdx === tubeIdx) {
+      this.selectedTubeIndex = null;
+      this.redrawTubeSelection();
+      return;
+    }
+
+    const snap = snapshot(this.state);
+    const result = moveTopGroup(this.state, sourceIdx, tubeIdx);
+    if (!result.ok) {
+      this.flashStatus("Can't move");
+      return;
+    }
+
+    this.state.history.push(snap);
+    this.selectedTubeIndex = null;
+    this.redrawTubeSelection();
+    this.fullRebuild();
+    this.checkManualWin();
+  }
+
   private handleTileTap(r: number, c: number): void {
     if (this.state.status !== "playing") return;
     const tile = this.state.tiles[r][c];
@@ -618,11 +730,15 @@ export class GameScene extends Phaser.Scene {
     if (this.state.history.length === 0) return;
     const snap = this.state.history.pop()!;
     restoreSnapshot(this.state, snap);
+    this.selectedTubeIndex = null;
+    this.redrawTubeSelection();
     this.fullRebuild();
   }
 
   private handleRestart(): void {
     this.state = buildGameState(this.level);
+    this.selectedTubeIndex = null;
+    this.redrawTubeSelection();
     this.fullRebuild();
   }
 
@@ -652,12 +768,30 @@ export class GameScene extends Phaser.Scene {
     this.state.tubes.forEach((t, i) => {
       t.marbles.forEach((m, j) => {
         const p = this.tubeMarblePos(i, j);
-        this.spawnMarbleSprite(m, p.x, p.y);
+        this.spawnTubeMarbleSprite(m, p.x, p.y);
       });
       this.updateTubeCount(i);
     });
 
     this.statusText.setText("");
+  }
+
+  private checkManualWin(): void {
+    const gridEmpty = this.state.tiles.every((row) =>
+      row.every((tile) => tile === null),
+    );
+    const conveyorEmpty = this.state.conveyor.every((slot) => slot === null);
+    if (
+      gridEmpty &&
+      this.state.pendingEject.length === 0 &&
+      conveyorEmpty &&
+      allTubesCorrect(this.state)
+    ) {
+      this.state.status = "won";
+      this.time.delayedCall(350, () => {
+        this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
+      });
+    }
   }
 
   private flashStatus(msg: string): void {
@@ -746,6 +880,7 @@ export class GameScene extends Phaser.Scene {
         const target = this.tubeMarblePos(tubeIdx, j);
         if (spr) {
           this.tweens.killTweensOf(spr.container);
+          this.morphSpriteToTubeMarble(spr);
           // Drop arc: first move horizontally, then plop down.
           this.tweens.add({
             targets: spr.container,

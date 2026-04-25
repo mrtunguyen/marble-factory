@@ -1,50 +1,125 @@
-// ContainerSystem — accepts a marble emitted from the conveyor and routes it
-// to the tube whose target color matches. Returns whether the routing
-// succeeded; failure means the factory has jammed and the player loses.
+// ContainerSystem — stack rules for the vertical sorting tubes.
 import type { GameState, Marble, Tube } from "./types";
 
 export interface RouteResult {
   ok: boolean;
   tubeIndex: number;
-  reason?: "no-tube" | "tube-full";
+  reason?: "no-compatible-tube" | "tube-full";
 }
 
-/** Find the index of the first non-full tube whose color matches the marble. */
-function findTargetTube(state: GameState, marble: Marble): number {
-  for (let i = 0; i < state.tubes.length; i++) {
-    const t = state.tubes[i];
-    if (t.color === marble.color && t.marbles.length < t.capacity) {
-      return i;
-    }
-  }
-  return -1;
+export interface MoveResult {
+  ok: boolean;
+  moved: Marble[];
+  sourceIndex: number;
+  destIndex: number;
+  reason?: "same-tube" | "empty-source" | "color-mismatch" | "not-enough-room";
 }
 
-/** Push a marble into its target tube. Returns ok=false (with a reason) when
- *  no matching tube has space. */
+/** Push one emitted marble into a compatible stack:
+ *  same top color first, otherwise the first empty tube. */
 export function routeMarble(state: GameState, marble: Marble): RouteResult {
-  // Are there any tubes for this color at all?
-  const hasAnyMatchingTube = state.tubes.some((t) => t.color === marble.color);
-  if (!hasAnyMatchingTube) {
-    return { ok: false, tubeIndex: -1, reason: "no-tube" };
+  const sameColorIdx = state.tubes.findIndex((tube) => {
+    const top = getTubeTop(tube);
+    return (
+      top?.color === marble.color && tube.marbles.length < tube.capacity
+    );
+  });
+  const emptyIdx = state.tubes.findIndex(
+    (tube) => tube.marbles.length === 0 && tube.marbles.length < tube.capacity,
+  );
+  const idx = sameColorIdx !== -1 ? sameColorIdx : emptyIdx;
+
+  if (idx === -1) {
+    const hasSpace = state.tubes.some((tube) => tube.marbles.length < tube.capacity);
+    return {
+      ok: false,
+      tubeIndex: -1,
+      reason: hasSpace ? "no-compatible-tube" : "tube-full",
+    };
   }
 
-  const idx = findTargetTube(state, marble);
-  if (idx === -1) {
-    return { ok: false, tubeIndex: -1, reason: "tube-full" };
-  }
   state.tubes[idx].marbles.push(marble);
   return { ok: true, tubeIndex: idx };
 }
 
-/** True when every tube is full and contains only its target color.
- *  (Tubes that can never overflow mismatching colors are checked anyway for
- *  defense in depth.) */
-export function allTubesCorrect(state: GameState): boolean {
-  return state.tubes.every(tubeIsFullAndCorrect);
+export function getTopGroup(tube: Tube): Marble[] {
+  const top = getTubeTop(tube);
+  if (!top) return [];
+
+  let start = tube.marbles.length - 1;
+  while (
+    start > 0 &&
+    tube.marbles[start - 1].color === top.color
+  ) {
+    start--;
+  }
+
+  return tube.marbles.slice(start);
 }
 
-function tubeIsFullAndCorrect(t: Tube): boolean {
+export function moveTopGroup(
+  state: GameState,
+  sourceIndex: number,
+  destIndex: number,
+): MoveResult {
+  if (sourceIndex === destIndex) {
+    return { ok: false, moved: [], sourceIndex, destIndex, reason: "same-tube" };
+  }
+
+  const source = state.tubes[sourceIndex];
+  const dest = state.tubes[destIndex];
+  const moving = getTopGroup(source);
+
+  if (moving.length === 0) {
+    return {
+      ok: false,
+      moved: [],
+      sourceIndex,
+      destIndex,
+      reason: "empty-source",
+    };
+  }
+
+  const destTop = getTubeTop(dest);
+  if (destTop && destTop.color !== moving[0].color) {
+    return {
+      ok: false,
+      moved: [],
+      sourceIndex,
+      destIndex,
+      reason: "color-mismatch",
+    };
+  }
+
+  if (dest.capacity - dest.marbles.length < moving.length) {
+    return {
+      ok: false,
+      moved: [],
+      sourceIndex,
+      destIndex,
+      reason: "not-enough-room",
+    };
+  }
+
+  source.marbles.splice(source.marbles.length - moving.length, moving.length);
+  dest.marbles.push(...moving);
+
+  return { ok: true, moved: moving, sourceIndex, destIndex };
+}
+
+/** True when every non-empty tube is full and contains one color. Empty tubes
+ *  are allowed as spare containers. */
+export function allTubesCorrect(state: GameState): boolean {
+  return state.tubes.every((tube) => tube.marbles.length === 0 || tubeIsComplete(tube));
+}
+
+export function tubeIsComplete(t: Tube): boolean {
   if (t.marbles.length !== t.capacity) return false;
-  return t.marbles.every((m) => m.color === t.color);
+  const first = t.marbles[0];
+  if (!first) return false;
+  return t.marbles.every((m) => m.color === first.color);
+}
+
+function getTubeTop(tube: Tube): Marble | null {
+  return tube.marbles[tube.marbles.length - 1] ?? null;
 }

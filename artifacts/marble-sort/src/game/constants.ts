@@ -19,11 +19,11 @@ export const CONVEYOR_MARGIN_X = 28;
 export const CONVEYOR_MARBLE_RADIUS = 14;
 export const CONVEYOR_DROP_RADIUS = 18;
 
-// Tube visuals (stacked-pill rack design)
-export const TUBE_WIDTH = 60;
-export const TUBE_GAP = 12;
-export const TUBE_SLOT_HEIGHT = 28; // height of one pill slot
-export const TUBE_SLOT_GAP = 2; // vertical spacing between pill slots
+// Tube visuals (wide stacked-pill rack design)
+export const TUBE_WIDTH = 108;
+export const TUBE_GAP = 10;
+export const TUBE_SLOT_HEIGHT = 40; // height of one pill slot
+export const TUBE_SLOT_GAP = 5; // vertical spacing between pill slots
 export const TUBE_RACK_PADDING = 12; // inner padding of the rack panel
 export const TUBE_TOP_PADDING = 14;
 
@@ -120,10 +120,7 @@ export const UI_GRID_BG = UI_GRID_PANEL;
 export const UI_TUBE_BG = UI_TUBE_SLOT_EMPTY;
 export const UI_TUBE_BORDER = UI_TUBE_RACK_BORDER;
 
-// Removed (no longer used by the new design): TUBE_CAP_HEIGHT,
-// TUBE_BOTTOM_HEIGHT, TUBE_PADDING, TUBE_MARBLE_DIAMETER. Kept as 0 below for
-// any straggler imports — should be cleaned up in follow-up.
-export const TUBE_CAP_HEIGHT = 0;
+export const TUBE_CAP_HEIGHT = 48;
 export const TUBE_BOTTOM_HEIGHT = 0;
 export const TUBE_PADDING = 0;
 export const TUBE_MARBLE_DIAMETER = TUBE_SLOT_HEIGHT;

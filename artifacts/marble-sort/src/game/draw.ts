@@ -5,6 +5,10 @@ import {
   MARBLE_COLORS_DARK,
   MARBLE_COLORS_LIGHT,
   TILE_RADIUS,
+  TUBE_SLOT_GAP,
+  TUBE_SLOT_HEIGHT,
+  UI_TUBE_SLOT_BORDER,
+  UI_TUBE_SLOT_EMPTY,
 } from "./constants";
 import type { GridTile, MarbleColor } from "./types";
 
@@ -88,6 +92,25 @@ export function drawMarble(
   g.fillCircle(-r * 0.4, -r * 0.42, r * 0.16);
 }
 
+// Draw one wide rounded slot fill for the sorting columns.
+export function drawTubeMarble(
+  g: Phaser.GameObjects.Graphics,
+  width: number,
+  height: number,
+  color: MarbleColor,
+): void {
+  const x = -width / 2;
+  const y = -height / 2;
+  g.fillStyle(0x000000, 0.28);
+  g.fillRoundedRect(x + 2, y + 4, width, height, 13);
+  g.fillStyle(MARBLE_COLORS_DARK[color], 1);
+  g.fillRoundedRect(x, y, width, height, 13);
+  g.fillStyle(MARBLE_COLORS[color], 1);
+  g.fillRoundedRect(x + 2, y + 2, width - 4, height - 4, 11);
+  g.fillStyle(MARBLE_COLORS_LIGHT[color], 0.62);
+  g.fillRoundedRect(x + 4, y + 4, width - 8, height * 0.38, 9);
+}
+
 // Draw a horizontal conveyor pipe with rivets
 export function drawConveyorPipe(
   g: Phaser.GameObjects.Graphics,
@@ -132,30 +155,45 @@ export function drawTube(
   bottomHeight: number,
   capColor: MarbleColor,
 ): void {
-  // Cap (colored lid)
+  const capacity = Math.max(
+    1,
+    Math.round((bodyHeight + TUBE_SLOT_GAP) / (TUBE_SLOT_HEIGHT + TUBE_SLOT_GAP)),
+  );
+  const totalHeight = capHeight + bodyHeight + bottomHeight;
+
+  // Strong outside silhouette, like the reference game's outlined columns.
+  g.fillStyle(0x11131f, 0.92);
+  g.fillRoundedRect(x - 5, y - 5, width + 10, totalHeight + 10, 15);
+  g.fillStyle(0xffffff, 0.92);
+  g.fillRoundedRect(x - 2, y - 2, width + 4, totalHeight + 4, 13);
+
+  // Header cap with three darker circular holes.
   g.fillStyle(MARBLE_COLORS_DARK[capColor], 1);
-  g.fillRoundedRect(x - 4, y, width + 8, capHeight, 8);
+  g.fillRoundedRect(x, y, width, capHeight, 13);
   g.fillStyle(MARBLE_COLORS[capColor], 1);
-  g.fillRoundedRect(x - 2, y + 2, width + 4, capHeight - 4, 6);
-  g.fillStyle(MARBLE_COLORS_LIGHT[capColor], 0.75);
-  g.fillRoundedRect(x + 2, y + 4, width - 4, (capHeight - 8) / 2, 4);
+  g.fillRoundedRect(x + 3, y + 3, width - 6, capHeight - 6, 11);
+  g.fillStyle(MARBLE_COLORS_LIGHT[capColor], 0.68);
+  g.fillRoundedRect(x + 5, y + 5, width - 10, capHeight * 0.4, 9);
 
-  // Body
+  const dotY = y + capHeight * 0.46;
+  const dotR = Math.min(12, width * 0.12);
+  const dotGap = width * 0.26;
+  for (let i = -1; i <= 1; i++) {
+    g.fillStyle(MARBLE_COLORS_DARK[capColor], 0.62);
+    g.fillCircle(x + width / 2 + i * dotGap, dotY + 1, dotR);
+    g.fillStyle(MARBLE_COLORS_LIGHT[capColor], 0.28);
+    g.fillCircle(x + width / 2 + i * dotGap - 2, dotY - 2, dotR * 0.55);
+  }
+
+  // Body made of individual rounded pill slots.
   const bodyY = y + capHeight;
-  g.fillStyle(0x4a328a, 0.4);
-  g.fillRect(x - 3, bodyY, width + 6, bodyHeight);
-  g.fillStyle(0xede0ff, 0.85);
-  g.fillRect(x, bodyY, width, bodyHeight);
-  // Inner left/right shadow
-  g.fillStyle(0x000000, 0.08);
-  g.fillRect(x, bodyY, 4, bodyHeight);
-  g.fillStyle(0xffffff, 0.5);
-  g.fillRect(x + width - 3, bodyY, 3, bodyHeight);
-
-  // Bottom (rounded base)
-  const baseY = bodyY + bodyHeight;
-  g.fillStyle(0x4a328a, 0.55);
-  g.fillRoundedRect(x - 4, baseY - 4, width + 8, bottomHeight + 4, 10);
-  g.fillStyle(0xc4b3e0, 1);
-  g.fillRoundedRect(x - 2, baseY - 2, width + 4, bottomHeight, 8);
+  for (let i = 0; i < capacity; i++) {
+    const slotY = bodyY + i * (TUBE_SLOT_HEIGHT + TUBE_SLOT_GAP);
+    g.fillStyle(UI_TUBE_SLOT_BORDER, 0.32);
+    g.fillRoundedRect(x, slotY + 2, width, TUBE_SLOT_HEIGHT + 2, 12);
+    g.fillStyle(UI_TUBE_SLOT_EMPTY, 1);
+    g.fillRoundedRect(x + 2, slotY, width - 4, TUBE_SLOT_HEIGHT, 12);
+    g.fillStyle(0xffffff, 0.44);
+    g.fillRoundedRect(x + 7, slotY + 5, width - 14, TUBE_SLOT_HEIGHT * 0.34, 9);
+  }
 }

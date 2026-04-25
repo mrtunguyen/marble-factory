@@ -3,7 +3,7 @@
 // Three layers:
 //   1. GRID    — chunky candy-block tiles that decompose into marbles when tapped
 //   2. CONVEYOR — 16-slot loop, marbles advance by logic one slot per tick
-//   3. TUBES    — vertical sorting containers, each capped with a target color
+//   3. TUBES    — vertical stack containers, each storing blocks bottom → top
 
 export type MarbleColor =
   | "red"
@@ -37,7 +37,7 @@ export interface TubeSpec {
 }
 
 export interface Tube {
-  color: MarbleColor;
+  color: MarbleColor; // cap/visual color
   capacity: number;
   marbles: Marble[]; // bottom → top
 }

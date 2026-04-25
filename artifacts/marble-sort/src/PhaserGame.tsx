@@ -15,10 +15,10 @@ export function PhaserGame() {
     if (!containerRef.current || gameRef.current) return;
 
     const config: Phaser.Types.Core.GameConfig = {
-      type: Phaser.AUTO,
+      type: Phaser.CANVAS,
       width: GAME_WIDTH,
       height: GAME_HEIGHT,
-      backgroundColor: "#1a1a2e",
+      backgroundColor: "#6dc5c8",
       scene: [
         MenuScene,
         GameScene,
@@ -75,7 +75,7 @@ export function PhaserGame() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "#1a1a2e",
+        background: "#6dc5c8",
         overflow: "hidden",
       }}
     >

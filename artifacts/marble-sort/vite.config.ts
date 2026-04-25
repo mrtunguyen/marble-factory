@@ -8,7 +8,9 @@ const rawPort = process.env.PORT;
 // PORT is optional during build — only required for dev/preview server
 const port = rawPort ? Number(rawPort) : 3000;
 
-const basePath = process.env.BASE_PATH ?? "/";
+// Use relative asset paths by default so static hosts like itch.io can serve
+// the build from arbitrary subpaths.
+const basePath = process.env.BASE_PATH ?? "./";
 
 export default defineConfig({
   base: basePath,

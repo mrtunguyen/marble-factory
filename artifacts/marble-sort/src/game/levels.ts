@@ -1,79 +1,139 @@
-// Level definitions for Block Match
-import type { LevelDef } from "./types";
-
-// Compact format: each cell is 2 chars
-// Colors: r b g y p o k(pink) c(cyan)
-// Kinds:  n(normal) m(mystery, color char ignored) 3(counter3) 2(counter2)
-// Empty:  ".."
+// Built-in level definitions for Marble Sort.
 //
-// Counter blocks count as ONE block of that color toward totals.
-// To win, each color count should be divisible by MATCH_COUNT (3).
+// Authoring rules so every level is winnable:
+//   - For each color, sum of marbles released by tiles of that color
+//     (always = marblesPerBlock per tile, regardless of mystery/counter/locked
+//     wrapping) must be EXACTLY divisible by, and totalled to, the matching
+//     tubes' total capacity.
+//   - Locked tiles need at least one non-locked 4-neighbor that will be
+//     consumed before them, so the lock can be opened.
+//   - Mystery tiles' hidden colors count toward the color totals.
+import {
+  DEFAULT_CONVEYOR_CAPACITY,
+  DEFAULT_MARBLES_PER_BLOCK,
+  DEFAULT_TICK_MS,
+} from "./constants";
+import type { LevelDef, LevelTile } from "./types";
+
+// Helpers for compact level authoring.
+const B = (color: LevelTile["color"]): LevelTile => ({ kind: "block", color });
+const M = (color: LevelTile["color"]): LevelTile => ({
+  kind: "mystery",
+  color,
+});
+const C = (color: LevelTile["color"], n: number): LevelTile => ({
+  kind: "counter",
+  color,
+  counter: n,
+});
+const L = (color: LevelTile["color"]): LevelTile => ({
+  kind: "locked",
+  color,
+});
 
 export const LEVELS: LevelDef[] = [
-  // Level 1: 3x3 — 3 colors × 3 each. Pure intro.
+  // ───── Level 1 ─────  Pure intro: tap blocks → marbles flow → 2 tubes fill.
   {
     id: 1,
-    name: "Warm Up",
-    cols: 3,
-    rows: 3,
-    trayCapacity: 7,
-    grid: [
-      "rnbngn",
-      "bngnrn",
-      "gnrnbn",
+    name: "Trickle Start",
+    cols: 2,
+    rows: 2,
+    marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
+    conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
+    tickMs: DEFAULT_TICK_MS,
+    tiles: [
+      [B("red"), B("blue")],
+      [B("blue"), B("red")],
+    ],
+    tubes: [
+      { color: "red", capacity: 6 },
+      { color: "blue", capacity: 6 },
     ],
   },
-  // Level 2: 4x3 — 4 colors × 3 each.
+
+  // ───── Level 2 ─────  Counter twist: a single counter-2 tile.
   {
     id: 2,
-    name: "Color Mix",
-    cols: 4,
-    rows: 3,
-    trayCapacity: 7,
-    grid: [
-      "rnbngnyn",
-      "ynrnbngn",
-      "gnynrnbn",
+    name: "Hold the Line",
+    cols: 3,
+    rows: 2,
+    marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
+    conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
+    tickMs: DEFAULT_TICK_MS,
+    tiles: [
+      [B("red"), B("blue"), B("green")],
+      [B("blue"), C("green", 2), B("red")],
+    ],
+    tubes: [
+      { color: "red", capacity: 6 },
+      { color: "blue", capacity: 6 },
+      { color: "green", capacity: 6 },
     ],
   },
-  // Level 3: 4x3 with counter blocks — counters take 3 taps to release.
+
+  // ───── Level 3 ─────  Mystery twist: one tile's color is hidden.
   {
     id: 3,
-    name: "Locked In",
-    cols: 4,
-    rows: 3,
-    trayCapacity: 7,
-    grid: [
-      "rnbngnyn",
-      "ynr3bngn",
-      "gnynbnr2",
+    name: "Mystery Cargo",
+    cols: 3,
+    rows: 2,
+    marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
+    conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
+    tickMs: DEFAULT_TICK_MS,
+    tiles: [
+      [B("red"), B("blue"), B("green")],
+      [M("blue"), B("green"), B("red")],
+    ],
+    tubes: [
+      { color: "red", capacity: 6 },
+      { color: "blue", capacity: 6 },
+      { color: "green", capacity: 6 },
     ],
   },
-  // Level 4: Mystery drop. 3 colors × 3 normal + 3 mystery = 12 cells.
-  // Mystery blocks resolve to a random color from remaining grid pool.
+
+  // ───── Level 4 ─────  Locked twist: a tile waits for a neighbor to clear.
+  // Locked red at (0,0) — neighbors are blue (0,1) and blue (1,0); the player
+  // must consume at least one of them before red unlocks.
   {
     id: 4,
-    name: "Mystery Drop",
-    cols: 4,
-    rows: 3,
-    trayCapacity: 7,
-    grid: [
-      "rnbngn?m",
-      "bngnrn?m",
-      "gnrnbn?m",
+    name: "Padlock",
+    cols: 3,
+    rows: 2,
+    marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
+    conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
+    tickMs: DEFAULT_TICK_MS,
+    tiles: [
+      [L("red"), B("blue"), B("green")],
+      [B("blue"), B("green"), B("red")],
+    ],
+    tubes: [
+      { color: "red", capacity: 6 },
+      { color: "blue", capacity: 6 },
+      { color: "green", capacity: 6 },
     ],
   },
-  // Level 5: Final blast. 6x3 — 6 colors × 3 each, with counter blocks.
+
+  // ───── Level 5 ─────  All twists: counter, mystery, locked, plus 4 colors.
+  // Colors: red×2, blue×2, green×2, yellow×2  →  4 tubes capacity 6.
+  // Locked yellow at (0,3) — neighbor red (0,2 mystery) or red (1,3) clears
+  // first; counter-3 green at (1,1).
   {
     id: 5,
-    name: "Final Blast",
-    cols: 6,
-    rows: 3,
-    trayCapacity: 8,
-    grid: [
-      "rnbngnynpnon",
-      "onrnb3gnynpn",
-      "pnonrnbngny3",
+    name: "Factory Rush",
+    cols: 4,
+    rows: 2,
+    marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
+    conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
+    tickMs: 220,
+    tiles: [
+      [B("blue"), B("green"), M("red"), L("yellow")],
+      [B("yellow"), C("green", 3), B("blue"), B("red")],
+    ],
+    tubes: [
+      { color: "red", capacity: 6 },
+      { color: "blue", capacity: 6 },
+      { color: "green", capacity: 6 },
+      { color: "yellow", capacity: 6 },
     ],
   },
 ];

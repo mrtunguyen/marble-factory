@@ -2,84 +2,86 @@ import Phaser from "phaser";
 import {
   GAME_WIDTH,
   GAME_HEIGHT,
-  BLOCK_SIZE,
-  BLOCK_GAP,
-  TRAY_SLOT_SIZE,
-  TRAY_GAP,
-  TRAY_HEIGHT,
+  TILE_SIZE,
+  TILE_GAP,
+  CONVEYOR_HEIGHT,
+  CONVEYOR_MARGIN_X,
+  CONVEYOR_MARBLE_RADIUS,
+  TUBE_WIDTH,
+  TUBE_GAP,
+  TUBE_MARBLE_DIAMETER,
+  TUBE_CAP_HEIGHT,
+  TUBE_BOTTOM_HEIGHT,
+  TUBE_PADDING,
+  MARBLE_ANIM_MS,
+  MARBLE_COLORS,
   SCENE_MENU,
   SCENE_COMPLETE,
   SCENE_GAMEOVER,
-  TRAY_ANIM_MS,
-  MATCH_ANIM_MS,
   UI_BG_TOP,
   UI_BG_BOTTOM,
   UI_GRID_BG,
-  UI_TRAY_BG,
-  UI_TRAY_BORDER,
-  UI_TEXT_DARK,
-  UI_TEXT_LIGHT,
-  UI_ACCENT,
-  BLOCK_COLORS,
-  ALL_COLORS,
+  UI_PIPE_BG,
+  UI_PIPE_BORDER,
 } from "../game/constants";
 import { LEVELS } from "../game/levels";
+import { drawTile, drawMarble, drawConveyorPipe, drawTube } from "../game/draw";
 import {
   buildGameState,
-  tapCell,
-  findMatch,
-  clearMatch,
-  isGridEmpty,
-  isLost,
   snapshot,
   restoreSnapshot,
-} from "../game/logic";
-import type { Block, BlockColor, GameState, LevelDef } from "../game/types";
-import { drawBlock, drawMarble, drawTrayPipe } from "../game/draw";
+  tick,
+} from "../game/state";
+import { tapTile } from "../game/gridManager";
+import type { GameState, GridTile, LevelDef, Marble } from "../game/types";
 
-interface CellSprite {
+interface TileSprite {
   container: Phaser.GameObjects.Container;
   graphics: Phaser.GameObjects.Graphics;
   text?: Phaser.GameObjects.Text;
   badge?: Phaser.GameObjects.Graphics;
+  lockIcon?: Phaser.GameObjects.Text;
+  r: number;
+  c: number;
 }
 
-interface TraySprite {
+interface MarbleSprite {
   container: Phaser.GameObjects.Container;
-  graphics: Phaser.GameObjects.Graphics;
-  block: Block;
+  marble: Marble;
 }
 
 export class GameScene extends Phaser.Scene {
   private state!: GameState;
   private level!: LevelDef;
-  private cellSprites: (CellSprite | null)[][] = [];
-  private traySprites: TraySprite[] = [];
-  private collectedTexts: Map<BlockColor, Phaser.GameObjects.Text> = new Map();
-  private collectedColumns: Map<BlockColor, Phaser.GameObjects.Container> =
-    new Map();
-  private isAnimating = false;
-  private gridOffsetX = 0;
-  private gridOffsetY = 0;
-  private trayY = 0;
-  private trayCenterX = 0;
-  private trayInnerWidth = 0;
+  private tileSprites: (TileSprite | null)[][] = [];
+  private marbleSprites: Map<number, MarbleSprite> = new Map();
+  private isAnimating = false; // blocks taps during snapshot animations
+  private lastTickAt = 0;
   private statusText!: Phaser.GameObjects.Text;
+  private gridOriginX = 0;
+  private gridOriginY = 0;
+  private conveyorX = 0; // left edge of inner pipe
+  private conveyorY = 0; // top edge of inner pipe
+  private conveyorWidth = 0;
+  private tubesY = 0; // top of cap row
 
   constructor() {
     super("GameScene");
   }
 
-  init(data: { levelId: number }): void {
-    const id = data?.levelId ?? 1;
-    const found = LEVELS.find((l) => l.id === id) ?? LEVELS[0];
-    this.level = found;
-    this.state = buildGameState(found);
-    this.cellSprites = [];
-    this.traySprites = [];
-    this.collectedTexts = new Map();
-    this.collectedColumns = new Map();
+  init(data: { levelId?: number; level?: LevelDef }): void {
+    if (data?.level) {
+      this.level = data.level;
+    } else {
+      const id = data?.levelId ?? 1;
+      const found = LEVELS.find((l) => l.id === id) ?? LEVELS[0];
+      this.level = found;
+    }
+    this.state = buildGameState(this.level);
+    this.tileSprites = [];
+    this.marbleSprites = new Map();
     this.isAnimating = false;
+    this.lastTickAt = 0;
   }
 
   create(): void {
@@ -88,68 +90,62 @@ export class GameScene extends Phaser.Scene {
     bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Top bar
     this.drawTopBar();
-
-    // Grid background panel
     this.drawGridPanel();
-
-    // Build grid sprites
     this.buildGrid();
+    this.drawConveyor();
+    this.drawTubes();
 
-    // Tray
-    this.buildTray();
-
-    // Collected (marble columns at bottom)
-    this.buildCollected();
-
-    // Status text
+    // Status banner just below the top bar
     this.statusText = this.add
-      .text(GAME_WIDTH / 2, this.trayY - 20, "", {
+      .text(GAME_WIDTH / 2, 64, "", {
         fontFamily: "Arial Black, sans-serif",
         fontSize: "16px",
         color: "#ffffff",
         stroke: "#5e2e91",
         strokeThickness: 3,
       })
-      .setOrigin(0.5);
+      .setOrigin(0.5, 0);
   }
 
-  // ------------- TOP BAR (back, level name, undo, restart) -------------
+  // ─────────────────────────── TOP BAR ───────────────────────────
   private drawTopBar(): void {
-    const barH = 60;
+    const barH = 56;
     const barG = this.add.graphics();
     barG.fillStyle(0x4a328a, 0.4);
     barG.fillRect(0, 0, GAME_WIDTH, barH);
 
-    // Back button
     this.makeIconButton(36, barH / 2, "<", () => {
       this.scene.start(SCENE_MENU);
     });
 
-    // Level name
     this.add
-      .text(GAME_WIDTH / 2, barH / 2, `Level ${this.level.id} — ${this.level.name}`, {
-        fontFamily: "Arial Black, sans-serif",
-        fontSize: "20px",
-        color: "#ffffff",
-        stroke: "#5e2e91",
-        strokeThickness: 3,
-      })
+      .text(
+        GAME_WIDTH / 2,
+        barH / 2,
+        `Lv ${this.level.id} — ${this.level.name}`,
+        {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "20px",
+          color: "#ffffff",
+          stroke: "#5e2e91",
+          strokeThickness: 3,
+        },
+      )
       .setOrigin(0.5);
 
-    // Undo button
-    this.makeIconButton(GAME_WIDTH - 88, barH / 2, "↶", () => {
-      this.handleUndo();
-    });
-
-    // Restart button
-    this.makeIconButton(GAME_WIDTH - 36, barH / 2, "↻", () => {
-      this.handleRestart();
-    });
+    this.makeIconButton(GAME_WIDTH - 88, barH / 2, "↶", () => this.handleUndo());
+    this.makeIconButton(GAME_WIDTH - 36, barH / 2, "↻", () =>
+      this.handleRestart(),
+    );
   }
 
-  private makeIconButton(x: number, y: number, label: string, cb: () => void): void {
+  private makeIconButton(
+    x: number,
+    y: number,
+    label: string,
+    cb: () => void,
+  ): void {
     const c = this.add.container(x, y);
     const g = this.add.graphics();
     g.fillStyle(0xffffff, 0.85);
@@ -166,444 +162,543 @@ export class GameScene extends Phaser.Scene {
     c.add([g, t]);
     c.setSize(40, 40);
     c.setInteractive({ useHandCursor: true });
-    c.on("pointerdown", () => {
-      if (!this.isAnimating) cb();
-    });
-    c.on("pointerover", () => c.setScale(1.1));
+    c.on("pointerdown", () => cb());
+    c.on("pointerover", () => c.setScale(1.08));
     c.on("pointerout", () => c.setScale(1));
   }
 
-  // ------------- GRID PANEL -------------
+  // ─────────────────────────── GRID PANEL ───────────────────────────
   private drawGridPanel(): void {
-    const panelW = this.level.cols * BLOCK_SIZE + (this.level.cols - 1) * BLOCK_GAP + 36;
-    const panelH = this.level.rows * BLOCK_SIZE + (this.level.rows - 1) * BLOCK_GAP + 36;
+    const panelW =
+      this.level.cols * TILE_SIZE +
+      (this.level.cols - 1) * TILE_GAP +
+      36;
+    const panelH =
+      this.level.rows * TILE_SIZE +
+      (this.level.rows - 1) * TILE_GAP +
+      36;
     const panelX = (GAME_WIDTH - panelW) / 2;
-    const panelY = 80;
+    const panelY = 90;
 
     const g = this.add.graphics();
-    // Outer panel
     g.fillStyle(0x4a328a, 0.5);
     g.fillRoundedRect(panelX - 6, panelY - 6, panelW + 12, panelH + 12, 28);
     g.fillStyle(UI_GRID_BG, 1);
     g.fillRoundedRect(panelX, panelY, panelW, panelH, 22);
 
-    this.gridOffsetX = panelX + 18 + BLOCK_SIZE / 2;
-    this.gridOffsetY = panelY + 18 + BLOCK_SIZE / 2;
+    this.gridOriginX = panelX + 18 + TILE_SIZE / 2;
+    this.gridOriginY = panelY + 18 + TILE_SIZE / 2;
   }
 
-  // ------------- GRID -------------
-  private buildGrid(): void {
-    this.cellSprites = [];
-    for (let r = 0; r < this.state.rows; r++) {
-      const row: (CellSprite | null)[] = [];
-      for (let c = 0; c < this.state.cols; c++) {
-        const block = this.state.cells[r][c];
-        if (!block) {
-          row.push(null);
-          continue;
-        }
-        const spr = this.makeCellSprite(r, c, block);
-        row.push(spr);
-      }
-      this.cellSprites.push(row);
-    }
-  }
-
-  private cellPos(r: number, c: number): { x: number; y: number } {
+  private tilePos(r: number, c: number): { x: number; y: number } {
     return {
-      x: this.gridOffsetX + c * (BLOCK_SIZE + BLOCK_GAP),
-      y: this.gridOffsetY + r * (BLOCK_SIZE + BLOCK_GAP),
+      x: this.gridOriginX + c * (TILE_SIZE + TILE_GAP),
+      y: this.gridOriginY + r * (TILE_SIZE + TILE_GAP),
     };
   }
 
-  private makeCellSprite(r: number, c: number, block: Block): CellSprite {
-    const { x, y } = this.cellPos(r, c);
+  private buildGrid(): void {
+    this.tileSprites = [];
+    for (let r = 0; r < this.state.rows; r++) {
+      const row: (TileSprite | null)[] = [];
+      for (let c = 0; c < this.state.cols; c++) {
+        const t = this.state.tiles[r][c];
+        if (!t) {
+          row.push(null);
+          continue;
+        }
+        row.push(this.makeTileSprite(r, c, t));
+      }
+      this.tileSprites.push(row);
+    }
+  }
+
+  private makeTileSprite(r: number, c: number, tile: GridTile): TileSprite {
+    const { x, y } = this.tilePos(r, c);
     const container = this.add.container(x, y);
     const graphics = this.add.graphics();
-    drawBlock(graphics, BLOCK_SIZE, block);
+    drawTile(graphics, TILE_SIZE, tile);
     container.add(graphics);
 
     let text: Phaser.GameObjects.Text | undefined;
     let badge: Phaser.GameObjects.Graphics | undefined;
+    let lockIcon: Phaser.GameObjects.Text | undefined;
 
-    if (block.kind === "mystery") {
+    if (tile.kind === "mystery" && !tile.revealed) {
       text = this.add
         .text(0, 0, "?", {
           fontFamily: "Arial Black, sans-serif",
-          fontSize: "32px",
+          fontSize: "34px",
           color: "#ffffff",
           stroke: "#444444",
           strokeThickness: 5,
         })
         .setOrigin(0.5);
       container.add(text);
-    } else if (block.kind === "counter" && block.counter) {
-      // Dark badge across middle
+    } else if (tile.kind === "counter" && tile.counter && tile.counter > 0) {
       badge = this.add.graphics();
-      badge.fillStyle(0x1a1a2e, 0.75);
-      badge.fillRoundedRect(-BLOCK_SIZE / 2 + 4, -10, BLOCK_SIZE - 8, 20, 6);
+      badge.fillStyle(0x1a1a2e, 0.78);
+      badge.fillRoundedRect(-TILE_SIZE / 2 + 6, -12, TILE_SIZE - 12, 24, 6);
       container.add(badge);
       text = this.add
-        .text(0, 0, `${block.counter}`, {
+        .text(0, 0, `${tile.counter}`, {
           fontFamily: "Arial Black, sans-serif",
           fontSize: "20px",
           color: "#ffffff",
         })
         .setOrigin(0.5);
       container.add(text);
+    } else if (tile.kind === "locked" && !tile.unlocked) {
+      lockIcon = this.add
+        .text(0, 0, "🔒", {
+          fontFamily: "Arial",
+          fontSize: "32px",
+        })
+        .setOrigin(0.5);
+      container.add(lockIcon);
+    } else {
+      // Show remaining-marble dots in the corner for normal/revealed/unlocked.
+      const dotsG = this.add.graphics();
+      const total = this.state.marblesPerBlock;
+      const dotR = 4;
+      const startX = -TILE_SIZE / 2 + 8;
+      const yPos = TILE_SIZE / 2 - 8;
+      for (let i = 0; i < total; i++) {
+        const filled = i < tile.marblesLeft;
+        dotsG.fillStyle(filled ? 0xffffff : 0x000000, filled ? 0.85 : 0.25);
+        dotsG.fillCircle(startX + i * (dotR * 2 + 2), yPos, dotR);
+      }
+      container.add(dotsG);
     }
 
-    container.setSize(BLOCK_SIZE, BLOCK_SIZE);
+    container.setSize(TILE_SIZE, TILE_SIZE);
     container.setInteractive({ useHandCursor: true });
-    container.on("pointerdown", () => this.handleCellTap(r, c));
-    container.on("pointerover", () => {
-      if (!this.isAnimating) container.setScale(1.05);
-    });
+    container.on("pointerdown", () => this.handleTileTap(r, c));
+    container.on("pointerover", () => container.setScale(1.05));
     container.on("pointerout", () => container.setScale(1));
 
-    return { container, graphics, text, badge };
+    return { container, graphics, text, badge, lockIcon, r, c };
   }
 
-  private redrawCell(r: number, c: number): void {
-    const block = this.state.cells[r][c];
-    const old = this.cellSprites[r][c];
+  private redrawTile(r: number, c: number): void {
+    const old = this.tileSprites[r][c];
     if (old) {
       old.container.destroy();
-      this.cellSprites[r][c] = null;
+      this.tileSprites[r][c] = null;
     }
-    if (block) {
-      this.cellSprites[r][c] = this.makeCellSprite(r, c, block);
-    }
-  }
-
-  // ------------- TRAY -------------
-  private buildTray(): void {
-    const cap = this.state.trayCapacity;
-    const innerW = cap * TRAY_SLOT_SIZE + (cap - 1) * TRAY_GAP + 24;
-    const innerH = TRAY_HEIGHT;
-    const x = (GAME_WIDTH - innerW) / 2;
-    const y = 80 + this.level.rows * BLOCK_SIZE + (this.level.rows - 1) * BLOCK_GAP + 80;
-
-    this.trayY = y;
-    this.trayCenterX = x + innerW / 2;
-    this.trayInnerWidth = innerW;
-
-    // Pipe-style background
-    const g = this.add.graphics();
-    drawTrayPipe(g, x, y, innerW, innerH, UI_TRAY_BG, UI_TRAY_BORDER);
-
-    // Slot indicators (faint dots)
-    for (let i = 0; i < cap; i++) {
-      const sx = this.traySlotX(i);
-      g.fillStyle(0x000000, 0.05);
-      g.fillCircle(sx, y + innerH / 2, TRAY_SLOT_SIZE / 2 - 4);
+    const tile = this.state.tiles[r][c];
+    if (tile) {
+      this.tileSprites[r][c] = this.makeTileSprite(r, c, tile);
     }
   }
 
-  private traySlotX(idx: number): number {
-    const cap = this.state.trayCapacity;
-    const innerW = cap * TRAY_SLOT_SIZE + (cap - 1) * TRAY_GAP + 24;
-    const startX = (GAME_WIDTH - innerW) / 2 + 12 + TRAY_SLOT_SIZE / 2;
-    return startX + idx * (TRAY_SLOT_SIZE + TRAY_GAP);
+  private redrawAllTiles(): void {
+    for (let r = 0; r < this.state.rows; r++) {
+      for (let c = 0; c < this.state.cols; c++) {
+        this.redrawTile(r, c);
+      }
+    }
   }
 
-  // ------------- COLLECTED MARBLES -------------
-  private buildCollected(): void {
-    // Row of color stacks at the bottom showing collected marbles per color
-    const colors = this.gridColors();
-    const numCols = colors.length;
-    const colW = 50;
-    const gap = 8;
-    const totalW = numCols * colW + (numCols - 1) * gap;
-    const startX = (GAME_WIDTH - totalW) / 2 + colW / 2;
-    const y = GAME_HEIGHT - 90;
+  // ─────────────────────────── CONVEYOR ───────────────────────────
+  private drawConveyor(): void {
+    const innerW = GAME_WIDTH - CONVEYOR_MARGIN_X * 2;
+    const x = CONVEYOR_MARGIN_X;
+    const y = 410;
+    this.conveyorX = x;
+    this.conveyorY = y;
+    this.conveyorWidth = innerW;
 
-    // Panel background
-    const panelG = this.add.graphics();
-    panelG.fillStyle(0x4a328a, 0.4);
-    panelG.fillRoundedRect(20, y - 50, GAME_WIDTH - 40, 120, 20);
-
+    // Label
     this.add
-      .text(GAME_WIDTH / 2, y - 35, "COLLECTED", {
+      .text(GAME_WIDTH / 2, y - 18, "CONVEYOR", {
         fontFamily: "Arial Black, sans-serif",
-        fontSize: "12px",
+        fontSize: "11px",
         color: "#e8def8",
       })
       .setOrigin(0.5);
 
-    colors.forEach((color, i) => {
-      const x = startX + i * (colW + gap);
-      const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    drawConveyorPipe(g, x, y, innerW, CONVEYOR_HEIGHT, UI_PIPE_BG, UI_PIPE_BORDER);
 
-      const bg = this.add.graphics();
-      bg.fillStyle(BLOCK_COLORS[color], 0.25);
-      bg.fillRoundedRect(-colW / 2, -10, colW, 60, 10);
-      bg.lineStyle(2, BLOCK_COLORS[color], 0.6);
-      bg.strokeRoundedRect(-colW / 2, -10, colW, 60, 10);
-
-      const marbleG = this.add.graphics();
-      drawMarble(marbleG, 22, color);
-      marbleG.y = 8;
-
-      const txt = this.add
-        .text(0, 36, "0", {
-          fontFamily: "Arial Black, sans-serif",
-          fontSize: "16px",
-          color: "#ffffff",
-          stroke: "#5e2e91",
-          strokeThickness: 3,
-        })
-        .setOrigin(0.5);
-
-      c.add([bg, marbleG, txt]);
-      this.collectedTexts.set(color, txt);
-      this.collectedColumns.set(color, c);
-    });
-  }
-
-  private gridColors(): BlockColor[] {
-    // All distinct colors that appear in the level (treat mystery as "all")
-    const set = new Set<BlockColor>();
-    for (const row of this.level.grid) {
-      for (let c = 0; c < this.level.cols; c++) {
-        const tok = row.slice(c * 2, c * 2 + 2);
-        if (!tok || tok === "..") continue;
-        const colorChar = tok[0];
-        const kindChar = tok[1];
-        const map: Record<string, BlockColor> = {
-          r: "red", b: "blue", g: "green", y: "yellow",
-          p: "purple", o: "orange", k: "pink", c: "cyan",
-        };
-        const color = map[colorChar];
-        if (color && kindChar !== "m") set.add(color);
-      }
-    }
-    if (set.size === 0) return ALL_COLORS.slice(0, 4);
-    return [...set];
-  }
-
-  // ------------- INTERACTION -------------
-  private handleCellTap(r: number, c: number): void {
-    if (this.isAnimating || this.state.status !== "playing") return;
-    const cell = this.state.cells[r][c];
-    if (!cell) return;
-
-    // Snapshot for undo BEFORE mutation
-    const snap = snapshot(this.state);
-
-    const result = tapCell(this.state, r, c);
-
-    if (!result.movedToTray) {
-      // Counter decremented or tray full
-      if (this.state.tray.length >= this.state.trayCapacity && cell.kind !== "counter") {
-        this.flashStatus("Tray full!");
-        return;
-      }
-      // Update visual for counter decrement
-      this.redrawCell(r, c);
-      this.tweens.add({
-        targets: this.cellSprites[r][c]?.container,
-        scale: { from: 1.1, to: 1 },
-        duration: 150,
-        ease: "Back.out",
-      });
-      this.state.history.push(snap);
-      return;
+    // Slot indicators (faint dots)
+    for (let i = 0; i < this.state.conveyor.length; i++) {
+      const sx = this.conveyorSlotX(i);
+      g.fillStyle(0x000000, 0.05);
+      g.fillCircle(sx, y + CONVEYOR_HEIGHT / 2, CONVEYOR_MARBLE_RADIUS - 2);
     }
 
-    // Block moved to tray — animate
-    this.state.history.push(snap);
-    this.isAnimating = true;
-    this.animateBlockToTray(r, c, result.block!);
+    // Direction arrow
+    g.fillStyle(0x7e57c2, 0.6);
+    const ay = y + CONVEYOR_HEIGHT / 2;
+    const ax = x + innerW + 2;
+    g.fillTriangle(ax, ay - 8, ax, ay + 8, ax + 12, ay);
   }
 
-  private animateBlockToTray(r: number, c: number, block: Block): void {
-    const sprite = this.cellSprites[r][c];
-    // Note: state.cells[r][c] is already null, but sprite still exists
-    const startContainer = sprite?.container;
-    if (!sprite || !startContainer) {
-      this.isAnimating = false;
-      this.checkResolutions();
-      return;
-    }
-    this.cellSprites[r][c] = null;
-
-    // Find tray index where this block was inserted
-    const trayIdx = this.findInsertedTrayIndex(block);
-
-    // Create a temporary "flying" sprite styled like the resolved block
-    const flyG = this.add.graphics();
-    drawBlock(flyG, BLOCK_SIZE, block);
-    const fly = this.add.container(startContainer.x, startContainer.y, [flyG]);
-    fly.setScale(1);
-    startContainer.destroy();
-
-    const targetX = this.traySlotX(trayIdx);
-    const targetY = this.trayY + TRAY_HEIGHT / 2;
-    const targetScale = TRAY_SLOT_SIZE / BLOCK_SIZE;
-
-    this.tweens.add({
-      targets: fly,
-      x: targetX,
-      y: targetY,
-      scaleX: targetScale,
-      scaleY: targetScale,
-      duration: TRAY_ANIM_MS,
-      ease: "Cubic.in",
-      onComplete: () => {
-        fly.destroy();
-        this.rebuildTraySprites();
-        this.checkResolutions();
-      },
-    });
+  private conveyorSlotX(idx: number): number {
+    const slotWidth = this.conveyorWidth / this.state.conveyor.length;
+    return this.conveyorX + slotWidth * (idx + 0.5);
   }
 
-  private findInsertedTrayIndex(block: Block): number {
-    // Walk from the right; the inserted block is the rightmost of its color.
-    for (let i = this.state.tray.length - 1; i >= 0; i--) {
-      if (this.state.tray[i].color === block.color) return i;
-    }
-    return this.state.tray.length - 1;
+  private conveyorSlotY(): number {
+    return this.conveyorY + CONVEYOR_HEIGHT / 2;
   }
 
-  private rebuildTraySprites(): void {
-    // Clear old
-    for (const s of this.traySprites) s.container.destroy();
-    this.traySprites = [];
+  // Position used to display marbles waiting in the pendingEject queue,
+  // stacked just above-left of the conveyor.
+  private pendingPos(idx: number): { x: number; y: number } {
+    const startX = this.conveyorX + 16;
+    return {
+      x: startX + idx * (CONVEYOR_MARBLE_RADIUS * 2 + 4),
+      y: this.conveyorY - 30,
+    };
+  }
 
-    const targetY = this.trayY + TRAY_HEIGHT / 2;
-    const targetScale = TRAY_SLOT_SIZE / BLOCK_SIZE;
-    this.state.tray.forEach((b, idx) => {
+  // ─────────────────────────── TUBES ───────────────────────────
+  private drawTubes(): void {
+    const n = this.state.tubes.length;
+    const totalW = n * TUBE_WIDTH + (n - 1) * TUBE_GAP;
+    const startX = (GAME_WIDTH - totalW) / 2;
+    const capacity = Math.max(...this.state.tubes.map((t) => t.capacity));
+    const bodyHeight = capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
+    const top = 510;
+    this.tubesY = top;
+
+    // Panel behind tubes
+    const panelG = this.add.graphics();
+    const panelH = TUBE_CAP_HEIGHT + bodyHeight + TUBE_BOTTOM_HEIGHT + 30;
+    panelG.fillStyle(0x4a328a, 0.4);
+    panelG.fillRoundedRect(20, top - 16, GAME_WIDTH - 40, panelH, 24);
+
+    this.add
+      .text(GAME_WIDTH / 2, top - 6, "SORTING TUBES", {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "11px",
+        color: "#e8def8",
+      })
+      .setOrigin(0.5);
+
+    for (let i = 0; i < n; i++) {
+      const tube = this.state.tubes[i];
+      const x = startX + i * (TUBE_WIDTH + TUBE_GAP);
+      const y = top + 12;
+      const tubeBodyH = tube.capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
       const g = this.add.graphics();
-      drawBlock(g, BLOCK_SIZE, b);
-      const c = this.add.container(this.traySlotX(idx), targetY, [g]);
-      c.setScale(targetScale);
-      this.traySprites.push({ container: c, graphics: g, block: b });
-    });
-  }
-
-  private checkResolutions(): void {
-    const match = findMatch(this.state.tray);
-    if (match) {
-      this.animateMatchClear(match);
-      return;
-    }
-
-    // No match — finalize turn
-    this.isAnimating = false;
-    if (isGridEmpty(this.state)) {
-      this.state.status = "won";
-      this.time.delayedCall(300, () => {
-        this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
-      });
-      return;
-    }
-    if (isLost(this.state)) {
-      this.state.status = "lost";
-      this.time.delayedCall(300, () => {
-        this.scene.start(SCENE_GAMEOVER, { levelId: this.level.id });
-      });
+      drawTube(
+        g,
+        x,
+        y,
+        TUBE_WIDTH,
+        tubeBodyH,
+        TUBE_CAP_HEIGHT,
+        TUBE_BOTTOM_HEIGHT,
+        tube.color,
+      );
+      // Capacity hint at the bottom: "0 / 6"
+      this.add
+        .text(
+          x + TUBE_WIDTH / 2,
+          y + TUBE_CAP_HEIGHT + tubeBodyH + TUBE_BOTTOM_HEIGHT + 8,
+          `${tube.marbles.length}/${tube.capacity}`,
+          {
+            fontFamily: "Arial Black, sans-serif",
+            fontSize: "13px",
+            color: "#ffffff",
+            stroke: "#5e2e91",
+            strokeThickness: 3,
+          },
+        )
+        .setOrigin(0.5)
+        .setName(`tubeCount-${i}`);
     }
   }
 
-  private animateMatchClear(match: { start: number; length: number }): void {
-    const color = this.state.tray[match.start].color;
-    const sprites = this.traySprites.slice(match.start, match.start + match.length);
+  // Position of the marble at slot j in tube i (j=0 bottom).
+  private tubeMarblePos(
+    tubeIdx: number,
+    j: number,
+  ): { x: number; y: number } {
+    const n = this.state.tubes.length;
+    const totalW = n * TUBE_WIDTH + (n - 1) * TUBE_GAP;
+    const startX = (GAME_WIDTH - totalW) / 2;
+    const tube = this.state.tubes[tubeIdx];
+    const tubeBodyH = tube.capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
+    const baseY =
+      this.tubesY +
+      12 +
+      TUBE_CAP_HEIGHT +
+      tubeBodyH -
+      TUBE_PADDING -
+      TUBE_MARBLE_DIAMETER / 2;
+    return {
+      x: startX + tubeIdx * (TUBE_WIDTH + TUBE_GAP) + TUBE_WIDTH / 2,
+      y: baseY - j * TUBE_MARBLE_DIAMETER,
+    };
+  }
 
-    // Pop animation
-    sprites.forEach((s, i) => {
-      this.tweens.add({
-        targets: s.container,
-        scale: { from: TRAY_SLOT_SIZE / BLOCK_SIZE, to: (TRAY_SLOT_SIZE / BLOCK_SIZE) * 1.3 },
-        alpha: { from: 1, to: 0 },
-        duration: MATCH_ANIM_MS,
-        delay: i * 50,
-        ease: "Back.in",
-      });
-    });
+  private updateTubeCount(i: number): void {
+    const t = this.state.tubes[i];
+    const txt = this.children.getByName(`tubeCount-${i}`) as
+      | Phaser.GameObjects.Text
+      | null;
+    if (txt) txt.setText(`${t.marbles.length}/${t.capacity}`);
+  }
 
-    // After pop, send marbles to collected column
-    this.time.delayedCall(MATCH_ANIM_MS + match.length * 50, () => {
-      // Update logic state
-      clearMatch(this.state, match);
-      // Animate marbles flying to collected column
-      const targetCol = this.collectedColumns.get(color);
-      if (targetCol) {
-        sprites.forEach((s, i) => {
-          const marbleG = this.add.graphics();
-          drawMarble(marbleG, 18, color);
-          const m = this.add.container(s.container.x, s.container.y, [marbleG]);
-          this.tweens.add({
-            targets: m,
-            x: targetCol.x,
-            y: targetCol.y + 8,
-            scale: 0.7,
-            duration: 360,
-            delay: i * 40,
-            ease: "Cubic.in",
-            onComplete: () => {
-              m.destroy();
-            },
-          });
+  // ─────────────────────────── MARBLE SPRITES ───────────────────────────
+  private spawnMarbleSprite(marble: Marble, x: number, y: number): MarbleSprite {
+    const g = this.add.graphics();
+    drawMarble(g, CONVEYOR_MARBLE_RADIUS * 2, marble.color);
+    const c = this.add.container(x, y, [g]);
+    c.setDepth(10);
+    const spr: MarbleSprite = { container: c, marble };
+    this.marbleSprites.set(marble.id, spr);
+    return spr;
+  }
+
+  private destroyMarbleSprite(id: number): void {
+    const spr = this.marbleSprites.get(id);
+    if (spr) {
+      spr.container.destroy();
+      this.marbleSprites.delete(id);
+    }
+  }
+
+  // ─────────────────────────── INTERACTION ───────────────────────────
+  private handleTileTap(r: number, c: number): void {
+    if (this.state.status !== "playing") return;
+    const tile = this.state.tiles[r][c];
+    if (!tile) return;
+    // Quick guard for locked
+    if (tile.kind === "locked" && !tile.unlocked) {
+      // Will the locks-satisfied check pass?
+      // (Pre-check for friendlier feedback)
+    }
+
+    // Snapshot for undo BEFORE mutation.
+    const snap = snapshot(this.state);
+    const before = this.state.pendingEject.length;
+    const outcome = tapTile(this.state, r, c);
+
+    if (outcome.kind === "noop") {
+      // Locked still locked, or empty — flash a wiggle.
+      const spr = this.tileSprites[r][c];
+      if (spr) {
+        this.tweens.add({
+          targets: spr.container,
+          x: { from: spr.container.x - 4, to: spr.container.x },
+          duration: 80,
+          yoyo: true,
+          repeat: 1,
         });
       }
-      this.time.delayedCall(360 + match.length * 40, () => {
-        this.rebuildTraySprites();
-        this.updateCollectedTexts();
-        // Recurse — there may be cascading matches (rare, but safe)
-        this.checkResolutions();
-      });
-    });
-  }
-
-  private updateCollectedTexts(): void {
-    for (const [color, txt] of this.collectedTexts.entries()) {
-      txt.setText(`${this.state.collected[color]}`);
-    }
-  }
-
-  private flashStatus(msg: string): void {
-    this.statusText.setText(msg);
-    this.statusText.setAlpha(1);
-    this.tweens.add({
-      targets: this.statusText,
-      alpha: 0,
-      duration: 1200,
-      delay: 400,
-    });
-  }
-
-  // ------------- UNDO / RESTART -------------
-  private handleUndo(): void {
-    if (this.state.history.length === 0) {
-      this.flashStatus("Nothing to undo");
+      this.flashStatus("Locked!");
       return;
     }
+
+    // Push snapshot to history
+    this.state.history.push(snap);
+
+    // Animate the tile change
+    this.redrawTile(r, c);
+
+    // If the tile is now empty, refreshing locks may have flipped neighbors.
+    // Redraw everything for safety.
+    this.redrawAllTiles();
+
+    // If marbles were released, spawn marble sprites for the new pendingEject items.
+    if (outcome.kind === "released" && outcome.releasedCount > 0) {
+      const tilePos = this.tilePos(r, c);
+      const newCount = this.state.pendingEject.length - before;
+      for (let k = 0; k < newCount; k++) {
+        const idx = before + k;
+        const m = this.state.pendingEject[idx];
+        const target = this.pendingPos(idx);
+        const spr = this.spawnMarbleSprite(m, tilePos.x, tilePos.y);
+        spr.container.setScale(0.4);
+        this.tweens.add({
+          targets: spr.container,
+          x: target.x,
+          y: target.y,
+          scale: 1,
+          duration: MARBLE_ANIM_MS,
+          ease: "Cubic.out",
+          delay: k * 60,
+        });
+      }
+    }
+
+    // Status banner clear
+    this.statusText.setText("");
+  }
+
+  private handleUndo(): void {
+    if (this.state.history.length === 0) return;
     const snap = this.state.history.pop()!;
     restoreSnapshot(this.state, snap);
-    this.rebuildAllSprites();
+    this.fullRebuild();
   }
 
   private handleRestart(): void {
     this.state = buildGameState(this.level);
-    this.rebuildAllSprites();
+    this.fullRebuild();
   }
 
-  private rebuildAllSprites(): void {
-    // Wipe existing
-    for (const row of this.cellSprites) {
+  private fullRebuild(): void {
+    // Clear all marble sprites
+    for (const [, s] of this.marbleSprites) s.container.destroy();
+    this.marbleSprites.clear();
+
+    // Rebuild tiles
+    for (const row of this.tileSprites) {
       for (const s of row) {
         if (s) s.container.destroy();
       }
     }
-    this.cellSprites = [];
-    for (const s of this.traySprites) s.container.destroy();
-    this.traySprites = [];
-
     this.buildGrid();
-    this.rebuildTraySprites();
-    this.updateCollectedTexts();
+
+    // Re-spawn marbles based on state
+    this.state.pendingEject.forEach((m, idx) => {
+      const p = this.pendingPos(idx);
+      this.spawnMarbleSprite(m, p.x, p.y);
+    });
+    this.state.conveyor.forEach((m, i) => {
+      if (!m) return;
+      this.spawnMarbleSprite(m, this.conveyorSlotX(i), this.conveyorSlotY());
+    });
+    this.state.tubes.forEach((t, i) => {
+      t.marbles.forEach((m, j) => {
+        const p = this.tubeMarblePos(i, j);
+        this.spawnMarbleSprite(m, p.x, p.y);
+      });
+      this.updateTubeCount(i);
+    });
+
     this.statusText.setText("");
-    this.isAnimating = false;
+  }
+
+  private flashStatus(msg: string): void {
+    this.statusText.setText(msg);
+    this.tweens.killTweensOf(this.statusText);
+    this.statusText.setAlpha(1);
+    this.tweens.add({
+      targets: this.statusText,
+      alpha: 0,
+      duration: 800,
+      delay: 600,
+    });
+  }
+
+  // ─────────────────────────── TICK LOOP ───────────────────────────
+  update(time: number): void {
+    if (this.state.status !== "playing") return;
+    if (this.lastTickAt === 0) this.lastTickAt = time;
+    if (time - this.lastTickAt < this.state.tickMs) return;
+    this.lastTickAt = time;
+    this.runTick();
+  }
+
+  private runTick(): void {
+    // Snapshot conveyor's previous marbles by id → previous slot index
+    const prevConveyor = this.state.conveyor.slice();
+
+    const result = tick(this.state);
+
+    // 1. Animate conveyor shift: every marble that survived in the conveyor
+    //    after the tick moves one slot right.
+    for (let i = 0; i < this.state.conveyor.length; i++) {
+      const m = this.state.conveyor[i];
+      if (!m) continue;
+      const spr = this.marbleSprites.get(m.id);
+      if (!spr) continue;
+      this.tweens.killTweensOf(spr.container);
+      this.tweens.add({
+        targets: spr.container,
+        x: this.conveyorSlotX(i),
+        y: this.conveyorSlotY(),
+        duration: this.state.tickMs - 20,
+        ease: "Linear",
+      });
+    }
+
+    // 2. New marble injected at slot 0 from pendingEject — its sprite already
+    //    exists (was spawned at queue position), tween into slot 0.
+    if (result.injected) {
+      const spr = this.marbleSprites.get(result.injected.id);
+      if (spr) {
+        this.tweens.killTweensOf(spr.container);
+        this.tweens.add({
+          targets: spr.container,
+          x: this.conveyorSlotX(0),
+          y: this.conveyorSlotY(),
+          duration: this.state.tickMs - 20,
+          ease: "Cubic.out",
+        });
+      }
+    }
+
+    // 3. Re-position the remaining pendingEject marbles to their new queue slots.
+    this.state.pendingEject.forEach((m, idx) => {
+      const spr = this.marbleSprites.get(m.id);
+      if (!spr) return;
+      const p = this.pendingPos(idx);
+      this.tweens.killTweensOf(spr.container);
+      this.tweens.add({
+        targets: spr.container,
+        x: p.x,
+        y: p.y,
+        duration: this.state.tickMs - 20,
+        ease: "Cubic.out",
+      });
+    });
+
+    // 4. The emitted marble: route into target tube (or game over).
+    if (result.emitted) {
+      const spr = this.marbleSprites.get(result.emitted.id);
+      if (result.routed?.ok) {
+        const tubeIdx = result.routed.tubeIndex;
+        const j = this.state.tubes[tubeIdx].marbles.length - 1;
+        const target = this.tubeMarblePos(tubeIdx, j);
+        if (spr) {
+          this.tweens.killTweensOf(spr.container);
+          // Drop arc: first move horizontally, then plop down.
+          this.tweens.add({
+            targets: spr.container,
+            x: target.x,
+            y: target.y,
+            duration: 360,
+            ease: "Bounce.out",
+          });
+        }
+        this.updateTubeCount(tubeIdx);
+      } else {
+        // Routing failed — animate marble dropping off the right edge then
+        // GameOver scene.
+        if (spr) {
+          this.tweens.add({
+            targets: spr.container,
+            x: spr.container.x + 60,
+            y: spr.container.y + 200,
+            alpha: 0,
+            angle: 90,
+            duration: 600,
+            ease: "Cubic.in",
+          });
+        }
+      }
+    }
+
+    // 5. Status transitions
+    if (result.statusChanged) {
+      this.time.delayedCall(700, () => {
+        if (this.state.status === "won") {
+          this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
+        } else if (this.state.status === "lost") {
+          this.scene.start(SCENE_GAMEOVER, { levelId: this.level.id });
+        }
+      });
+    }
+
+    // Avoid unused-var warning; prevConveyor is kept for potential debug.
+    void prevConveyor;
   }
 }

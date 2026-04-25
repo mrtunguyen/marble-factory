@@ -42,6 +42,25 @@ export function PhaserGame() {
 
     gameRef.current = new Phaser.Game(config);
 
+    // Optional deep-link: ?level=N or ?scene=editor
+    const params = new URLSearchParams(window.location.search);
+    const levelParam = params.get("level");
+    const sceneParam = params.get("scene");
+    gameRef.current.events.once("ready", () => {
+      if (sceneParam === "editor") {
+        gameRef.current!.scene.start("MenuScene");
+        gameRef.current!.scene.start("EditorScene");
+        gameRef.current!.scene.stop("MenuScene");
+      } else if (levelParam) {
+        const id = Number(levelParam);
+        if (Number.isFinite(id) && id > 0) {
+          gameRef.current!.scene.start("MenuScene");
+          gameRef.current!.scene.start("GameScene", { levelId: id });
+          gameRef.current!.scene.stop("MenuScene");
+        }
+      }
+    });
+
     return () => {
       gameRef.current?.destroy(true);
       gameRef.current = null;

@@ -1,6 +1,11 @@
-// Block Match puzzle game types
+// Marble Sort: factory data model
+//
+// Three layers:
+//   1. GRID    — chunky candy-block tiles that decompose into marbles when tapped
+//   2. CONVEYOR — horizontal pipe with N slots, marbles shift left → right one per tick
+//   3. TUBES    — vertical sorting containers, each capped with a target color
 
-export type BlockColor =
+export type MarbleColor =
   | "red"
   | "blue"
   | "green"
@@ -10,44 +15,71 @@ export type BlockColor =
   | "pink"
   | "cyan";
 
-export type BlockKind = "normal" | "mystery" | "counter";
-
-export interface Block {
-  color: BlockColor; // for mystery: random color picked on tap
-  kind: BlockKind;
-  counter?: number; // for counter blocks: taps remaining
+export interface Marble {
+  id: number;
+  color: MarbleColor;
 }
 
-// A grid cell is either empty (null) or holds a block
-export type Cell = Block | null;
+export type TileKind = "block" | "mystery" | "counter" | "locked";
+
+export interface GridTile {
+  kind: TileKind;
+  color: MarbleColor;       // for mystery: hidden until revealed
+  marblesLeft: number;      // marbles still to release from this tile
+  counter?: number;         // remaining taps for counter tiles
+  revealed?: boolean;       // mystery tile has been revealed
+  unlocked?: boolean;       // locked tile has been unlocked
+}
+
+export interface TubeSpec {
+  color: MarbleColor;
+  capacity: number;
+}
+
+export interface Tube {
+  color: MarbleColor;
+  capacity: number;
+  marbles: Marble[]; // bottom → top
+}
+
+// Authoring format — used by built-in levels and the editor
+export interface LevelTile {
+  kind: TileKind;
+  color: MarbleColor;
+  counter?: number;
+}
 
 export interface LevelDef {
   id: number;
   name: string;
   cols: number;
   rows: number;
-  trayCapacity: number;
-  // Compact grid string, row by row, top to bottom
-  // Each cell is 2 chars: color + kind
-  // Color: r=red, b=blue, g=green, y=yellow, p=purple, o=orange, k=pink, c=cyan
-  // Kind: n=normal, m=mystery (color ignored, set to '?'), 3=counter3, 2=counter2
-  // ".." = empty cell
-  grid: string[];
+  marblesPerBlock: number;
+  conveyorCapacity: number;
+  tickMs: number;
+  // tiles[row][col] — null = empty cell
+  tiles: (LevelTile | null)[][];
+  tubes: TubeSpec[];
 }
 
 export interface GameState {
   cols: number;
   rows: number;
-  cells: Cell[][];
-  tray: Block[];
-  trayCapacity: number;
-  collected: Record<BlockColor, number>;
-  history: GameStateSnapshot[];
+  tiles: (GridTile | null)[][];
+  pendingEject: Marble[];          // marbles waiting to enter conveyor
+  conveyor: (Marble | null)[];     // index 0 = leftmost
+  tubes: Tube[];
   status: "playing" | "won" | "lost";
+  nextMarbleId: number;
+  marblesPerBlock: number;
+  tickMs: number;
+  history: GameStateSnapshot[];
 }
 
 export interface GameStateSnapshot {
-  cells: Cell[][];
-  tray: Block[];
-  collected: Record<BlockColor, number>;
+  tiles: (GridTile | null)[][];
+  pendingEject: Marble[];
+  conveyor: (Marble | null)[];
+  tubes: Tube[];
+  nextMarbleId: number;
 }

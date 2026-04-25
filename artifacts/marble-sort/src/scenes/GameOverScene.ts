@@ -20,41 +20,55 @@ export class GameOverScene extends Phaser.Scene {
     bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Dim overlay
-    const overlay = this.add.graphics();
-    overlay.fillStyle(0x000000, 0.35);
-    overlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    // Sad emoji-style icon
+    this.add
+      .text(GAME_WIDTH / 2, 280, "💥", {
+        fontFamily: "Arial",
+        fontSize: "120px",
+      })
+      .setOrigin(0.5);
 
     this.add
-      .text(GAME_WIDTH / 2, 280, "TRAY FULL!", {
+      .text(GAME_WIDTH / 2, 400, "FACTORY JAMMED!", {
         fontFamily: "Arial Black, sans-serif",
-        fontSize: "52px",
-        color: "#ff5b6e",
-        stroke: "#5a1620",
-        strokeThickness: 8,
+        fontSize: "40px",
+        color: "#ff7676",
+        stroke: "#5e2e91",
+        strokeThickness: 7,
       })
       .setOrigin(0.5);
 
     this.add
-      .text(GAME_WIDTH / 2, 340, "No matches available.\nTry again!", {
-        fontFamily: "Arial, sans-serif",
-        fontSize: "20px",
-        color: "#ffffff",
-        stroke: "#5e2e91",
-        strokeThickness: 3,
-        align: "center",
-      })
+      .text(
+        GAME_WIDTH / 2,
+        450,
+        "A marble had nowhere to go.\nThe target tube was full.",
+        {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "16px",
+          color: "#ffffff",
+          stroke: "#5e2e91",
+          strokeThickness: 3,
+          align: "center",
+        },
+      )
       .setOrigin(0.5);
 
-    this.makeButton(GAME_WIDTH / 2, 470, "RETRY", 0x6dd35f, () => {
-      this.scene.start(SCENE_GAME, { levelId: id });
-    });
-    this.makeButton(GAME_WIDTH / 2, 550, "MENU", 0xb472ff, () => {
-      this.scene.start(SCENE_MENU);
-    });
+    this.makeButton(GAME_WIDTH / 2, 560, "RETRY", 0x6dd35f, () =>
+      this.scene.start(SCENE_GAME, { levelId: id }),
+    );
+    this.makeButton(GAME_WIDTH / 2, 650, "MENU", 0xb472ff, () =>
+      this.scene.start(SCENE_MENU),
+    );
   }
 
-  private makeButton(x: number, y: number, label: string, color: number, cb: () => void): void {
+  private makeButton(
+    x: number,
+    y: number,
+    label: string,
+    color: number,
+    cb: () => void,
+  ): void {
     const c = this.add.container(x, y);
     const g = this.add.graphics();
     g.fillStyle(0x000000, 0.25);

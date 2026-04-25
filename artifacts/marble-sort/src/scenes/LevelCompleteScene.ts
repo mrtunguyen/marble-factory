@@ -6,10 +6,11 @@ import {
   SCENE_MENU,
   UI_BG_TOP,
   UI_BG_BOTTOM,
-  BLOCK_COLORS,
+  MARBLE_COLORS,
 } from "../game/constants";
 import { LEVELS } from "../game/levels";
 import { drawMarble } from "../game/draw";
+import type { MarbleColor } from "../game/types";
 
 export class LevelCompleteScene extends Phaser.Scene {
   constructor() {
@@ -21,14 +22,13 @@ export class LevelCompleteScene extends Phaser.Scene {
     const idx = LEVELS.findIndex((l) => l.id === id);
     const next = idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1] : null;
 
-    // BG
     const bg = this.add.graphics();
     bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
     bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     // Confetti marbles
-    const colors = Object.keys(BLOCK_COLORS) as (keyof typeof BLOCK_COLORS)[];
-    for (let i = 0; i < 24; i++) {
+    const colors = Object.keys(MARBLE_COLORS) as MarbleColor[];
+    for (let i = 0; i < 28; i++) {
       const g = this.add.graphics();
       drawMarble(g, 18, colors[i % colors.length]);
       g.x = Math.random() * GAME_WIDTH;
@@ -37,15 +37,14 @@ export class LevelCompleteScene extends Phaser.Scene {
         targets: g,
         y: GAME_HEIGHT + 40,
         rotation: Math.random() * 6,
-        duration: 2200 + Math.random() * 1800,
+        duration: 2400 + Math.random() * 1800,
         repeat: -1,
         delay: Math.random() * 1000,
       });
     }
 
-    // Title
     this.add
-      .text(GAME_WIDTH / 2, 200, "LEVEL COMPLETE!", {
+      .text(GAME_WIDTH / 2, 240, "TUBES SORTED!", {
         fontFamily: "Arial Black, sans-serif",
         fontSize: "44px",
         color: "#ffd84a",
@@ -55,7 +54,7 @@ export class LevelCompleteScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.add
-      .text(GAME_WIDTH / 2, 250, `Level ${id} cleared`, {
+      .text(GAME_WIDTH / 2, 290, `Level ${id} cleared`, {
         fontFamily: "Arial Black, sans-serif",
         fontSize: "20px",
         color: "#ffffff",
@@ -67,7 +66,7 @@ export class LevelCompleteScene extends Phaser.Scene {
     // Stars
     for (let i = 0; i < 3; i++) {
       const x = GAME_WIDTH / 2 - 80 + i * 80;
-      const y = 340;
+      const y = 380;
       const star = this.add.graphics();
       star.fillStyle(0xffd84a, 1);
       star.lineStyle(4, 0x7e3a00, 1);
@@ -85,14 +84,13 @@ export class LevelCompleteScene extends Phaser.Scene {
       });
     }
 
-    // Buttons
     if (next) {
-      this.makeButton(GAME_WIDTH / 2, 470, "NEXT LEVEL", 0x6dd35f, () => {
+      this.makeButton(GAME_WIDTH / 2, 520, "NEXT LEVEL", 0x6dd35f, () => {
         this.scene.start(SCENE_GAME, { levelId: next.id });
       });
     } else {
       this.add
-        .text(GAME_WIDTH / 2, 470, "ALL LEVELS DONE!", {
+        .text(GAME_WIDTH / 2, 520, "FACTORY MASTERED!", {
           fontFamily: "Arial Black, sans-serif",
           fontSize: "26px",
           color: "#ffd84a",
@@ -102,15 +100,21 @@ export class LevelCompleteScene extends Phaser.Scene {
         .setOrigin(0.5);
     }
 
-    this.makeButton(GAME_WIDTH / 2, 550, "REPLAY", 0x49b9ff, () => {
-      this.scene.start(SCENE_GAME, { levelId: id });
-    });
-    this.makeButton(GAME_WIDTH / 2, 630, "MENU", 0xb472ff, () => {
-      this.scene.start(SCENE_MENU);
-    });
+    this.makeButton(GAME_WIDTH / 2, 610, "REPLAY", 0x49b9ff, () =>
+      this.scene.start(SCENE_GAME, { levelId: id }),
+    );
+    this.makeButton(GAME_WIDTH / 2, 700, "MENU", 0xb472ff, () =>
+      this.scene.start(SCENE_MENU),
+    );
   }
 
-  private makeButton(x: number, y: number, label: string, color: number, cb: () => void): void {
+  private makeButton(
+    x: number,
+    y: number,
+    label: string,
+    color: number,
+    cb: () => void,
+  ): void {
     const c = this.add.container(x, y);
     const g = this.add.graphics();
     g.fillStyle(0x000000, 0.25);
@@ -142,7 +146,7 @@ export class LevelCompleteScene extends Phaser.Scene {
     cy: number,
     points: number,
     outer: number,
-    inner: number
+    inner: number,
   ): void {
     g.beginPath();
     const step = Math.PI / points;

@@ -53,6 +53,7 @@ interface MarbleSprite {
   container: Phaser.GameObjects.Container;
   marble: Marble;
   physicsBody?: MatterJS.BodyType; // only for pending-eject marbles in the funnel
+  scale: number; // track marble's actual size
 }
 
 export class GameScene extends Phaser.Scene {
@@ -60,6 +61,7 @@ export class GameScene extends Phaser.Scene {
   private level!: LevelDef;
   private tileSprites: (TileSprite | null)[][] = [];
   private marbleSprites: Map<number, MarbleSprite> = new Map();
+  private marbleScales: Map<number, number> = new Map(); // track each marble's actual scale
   private isAnimating = false; // blocks taps during snapshot animations
   private lastTickAt = 0;
   private statusText!: Phaser.GameObjects.Text;
@@ -93,6 +95,7 @@ export class GameScene extends Phaser.Scene {
     this.state = buildGameState(this.level);
     this.tileSprites = [];
     this.marbleSprites = new Map();
+    this.marbleScales = new Map();
     this.isAnimating = false;
     this.lastTickAt = 0;
     this.shippingLaneIds = new Set();
@@ -670,11 +673,13 @@ export class GameScene extends Phaser.Scene {
     y: number,
     usePhysics = false,
     physicsRadius = CONVEYOR_MARBLE_RADIUS,
+    scale = 1,
   ): MarbleSprite {
     const g = this.add.graphics();
     drawMarble(g, CONVEYOR_MARBLE_RADIUS * 2, marble.color);
     const c = this.add.container(x, y, [g]);
     c.setDepth(10);
+    c.setScale(scale);
 
     let physicsBody: MatterJS.BodyType | undefined;
     if (usePhysics) {
@@ -698,7 +703,7 @@ export class GameScene extends Phaser.Scene {
       (physicsBody as any).velocity = { x: randomVx, y: bounceVy };
     }
 
-    const spr: MarbleSprite = { container: c, marble, physicsBody };
+    const spr: MarbleSprite = { container: c, marble, physicsBody, scale };
     this.marbleSprites.set(marble.id, spr);
     return spr;
   }
@@ -789,14 +794,15 @@ export class GameScene extends Phaser.Scene {
         const targetScale = GameScene.MARBLE_SCALES[k % 3];
         const physicsRadius = CONVEYOR_MARBLE_RADIUS * targetScale;
         const offsetX = (k % 3 - 1) * (CONVEYOR_MARBLE_RADIUS * 0.6);
-        const spr = this.spawnMarbleSprite(m, tilePos.x + offsetX, tilePos.y, true, physicsRadius);
-        spr.container.setScale(0);
+        const spr = this.spawnMarbleSprite(m, tilePos.x + offsetX, tilePos.y, true, physicsRadius, 0);
+        this.marbleScales.set(m.id, targetScale);
         this.tweens.add({
           targets: spr.container,
           scale: targetScale,
           duration: 100,
           ease: "Back.Out",
-          delay: 0//k * 20,
+          delay: 0,
+          onComplete: () => { spr.scale = targetScale; },
         });
       }
     }
@@ -838,19 +844,23 @@ export class GameScene extends Phaser.Scene {
       const physicsRadius = CONVEYOR_MARBLE_RADIUS * targetScale;
       const x = GAME_WIDTH / 2 + (col - 1.5) * (CONVEYOR_MARBLE_RADIUS * 2 + 4);
       const y = this.funnelPanelBottom - 80 - row * (CONVEYOR_MARBLE_RADIUS * 2 + 4);
-      const spr = this.spawnMarbleSprite(m, x, y, true, physicsRadius);
-      spr.container.setScale(targetScale);
+      const spr = this.spawnMarbleSprite(m, x, y, true, physicsRadius, targetScale);
+      this.marbleScales.set(m.id, targetScale);
     });
     this.state.conveyor.forEach((m, i) => {
       if (!m) return;
       const p = this.conveyorSlotPos(i);
-      this.spawnMarbleSprite(m, p.x, p.y);
+      const scale = this.marbleScales.get(m.id) ?? 1;
+      const spr = this.spawnMarbleSprite(m, p.x, p.y, false, CONVEYOR_MARBLE_RADIUS, scale);
+      spr.scale = scale;
     });
     this.state.lanes?.forEach((lane, i) => {
       const mmc = lane.queue[0];
       mmc?.marbles.forEach((m, j) => {
         const p = this.mmcMarblePos(i, j);
-        this.spawnMarbleSprite(m, p.x, p.y);
+        const scale = this.marbleScales.get(m.id) ?? 1;
+        const spr = this.spawnMarbleSprite(m, p.x, p.y, false, CONVEYOR_MARBLE_RADIUS, scale);
+        spr.scale = scale;
       });
       this.drawMMCLane(i);
     });
@@ -914,7 +924,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // 2. New marble injected at slot 0 from pendingEject — remove its physics
-    //    body and tween the container onto the conveyor at full scale.
+    //    body and tween the container onto the conveyor.
     if (result.injected) {
       const spr = this.marbleSprites.get(result.injected.id);
       if (spr) {
@@ -923,12 +933,13 @@ export class GameScene extends Phaser.Scene {
           spr.physicsBody = undefined;
         }
         const p = this.conveyorSlotPos(0);
+        const scale = this.marbleScales.get(result.injected.id) ?? 1;
         this.tweens.killTweensOf(spr.container);
         this.tweens.add({
           targets: spr.container,
           x: p.x,
           y: p.y,
-          scale: 1,
+          scale: scale,
           duration: this.state.tickMs - 20,
           ease: "Cubic.out",
         });
@@ -947,6 +958,7 @@ export class GameScene extends Phaser.Scene {
           targets: spr.container,
           x: target.x,
           y: target.y,
+          scale: spr.scale,
           duration: 220,
           ease: "Cubic.out",
           onComplete: () => {

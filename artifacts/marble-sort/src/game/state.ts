@@ -48,7 +48,7 @@ export function buildGameState(def: LevelDef): GameState {
     def.conveyorCapacity,
     MAX_CONVEYOR_CAPACITY,
   );
-  const laneBuild = buildLanesFromTubes(def.tubes, 1);
+  const laneBuild = buildLanesFromTubes(def.tubes, 1, def.tiles, def.marblesPerBlock);
 
   const state: GameState = {
     cols: def.cols,

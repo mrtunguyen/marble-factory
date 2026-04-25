@@ -6,15 +6,17 @@
 //
 // This module is intentionally decoupled from conveyorSystem.ts: it only reads
 // from / writes to state.conveyor. The pickup step runs on its own tick phase.
-import type { GameState, Lane, Marble, MMC, TubeSpec } from "./types";
+import type { GameState, GridTile, Lane, LevelTile, Marble, MMC, TubeSpec } from "./types";
 import { MMC_CAPACITY } from "./constants";
 
-/** Build mixed lane queues from a level's tube specs. Each tube of capacity N
- * becomes `ceil(N / MMC_CAPACITY)` empty MMCs of that color, then MMCs are
- * dealt round-robin across lanes so lanes are not color-sorted. */
+/** Build mixed lane queues from a level's tubes and tiles. MMCs are created
+ * based on the total count of marbles per color in the grid (not tube capacity).
+ * MMCs are dealt round-robin across lanes so lanes are not color-sorted. */
 export function buildLanesFromTubes(
   tubes: TubeSpec[],
   startMMCId: number,
+  tiles?: (LevelTile | null)[][],
+  marblesPerBlock?: number,
 ): { lanes: Lane[]; nextMMCId: number } {
   let nextId = startMMCId;
   const laneCount = Math.max(1, tubes.length);
@@ -25,8 +27,26 @@ export function buildLanesFromTubes(
   }));
   const mmcs: MMC[] = [];
 
+  // Count marbles per color from tiles
+  const marbleCountByColor: Record<string, number> = {};
   tubes.forEach((spec) => {
-    const count = Math.max(1, Math.ceil(spec.capacity / MMC_CAPACITY));
+    marbleCountByColor[spec.color] = 0;
+  });
+
+  if (tiles && marblesPerBlock) {
+    for (const row of tiles) {
+      for (const tile of row) {
+        if (tile && marbleCountByColor.hasOwnProperty(tile.color)) {
+          marbleCountByColor[tile.color] += marblesPerBlock;
+        }
+      }
+    }
+  }
+
+  // Create MMCs based on total marble count per color
+  tubes.forEach((spec) => {
+    const totalMarbles = marbleCountByColor[spec.color] || 0;
+    const count = Math.max(1, Math.ceil(totalMarbles / MMC_CAPACITY));
     for (let k = 0; k < count; k++) {
       mmcs.push({
         id: nextId++,

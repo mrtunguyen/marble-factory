@@ -57,6 +57,12 @@ export function buildLanesFromTubes(
     }
   });
 
+  // Shuffle MMCs to randomize color order while preserving total count per color
+  for (let i = mmcs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [mmcs[i], mmcs[j]] = [mmcs[j], mmcs[i]];
+  }
+
   mmcs.forEach((mmc, i) => {
     lanes[i % laneCount].queue.push(mmc);
   });

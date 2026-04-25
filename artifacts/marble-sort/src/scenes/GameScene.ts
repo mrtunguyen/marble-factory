@@ -217,8 +217,8 @@ export class GameScene extends Phaser.Scene {
     const gridH =
       this.level.rows * TILE_SIZE +
       (this.level.rows - 1) * TILE_GAP;
-    const panelW = Math.max(gridW + 72, 420);
-    const panelH = Math.max(gridH + 58, 270);
+    const panelW = gridW + 140;
+    const panelH = gridH + 120;
     const panelX = (GAME_WIDTH - panelW) / 2;
     const panelY = 76;
     const panelBottom = panelY + panelH;
@@ -317,38 +317,39 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createFunnelColliders(): void {
-    const T = 20;
+    const T = 40;
     const cx = GAME_WIDTH / 2;
     const px = this.funnelPanelX;
     const pw = this.funnelPanelW;
     const panelY = 76;
+    const pb = this.funnelPanelBottom;
     const fbY = this.conveyorY;
     const tw = 82;
 
-    const Tau = 2 * Math.PI
-    // Single ramp per side: panel top-corner → throat
-    const lx1 = px, ly1 = panelY, lx2 = cx - tw / 2, ly2 = fbY;
+    const wall = (label: string) => ({ isStatic: true, label });
+
+    // Outer box walls
+    this.matter.add.rectangle(px - T / 2, panelY + (pb - panelY) / 2, T, pb - panelY, wall("wall-left"));
+    this.matter.add.rectangle(px + pw + T / 2, panelY + (pb - panelY) / 2, T, pb - panelY, wall("wall-right"));
+    this.matter.add.rectangle(cx, panelY - T / 2, pw + T * 2, T, wall("wall-top"));
+
+    // Ramps from bottom of outer walls to throat: extend from wall bottom to conveyor
+    const lx1 = px, ly1 = pb, lx2 = cx - tw / 2, ly2 = fbY;
     const lLen = Math.hypot(lx2 - lx1, ly2 - ly1);
-    this.matter.add.rectangle((lx1 + lx2) / 2 -20+20, 400-100+50-10, 200, T,
-      { isStatic: true, angle: Tau/15, label: "ramp-left" });
+    this.matter.add.rectangle((lx1 + lx2) / 2, (ly1 + ly2) / 2, lLen, T,
+      { isStatic: true, angle: Math.atan2(ly2 - ly1, lx2 - lx1), label: "ramp-left" });
 
-    const rx1 = px + pw, ry1 = panelY, rx2 = cx + tw / 2, ry2 = fbY;
+    const rx1 = px + pw, ry1 = pb, rx2 = cx + tw / 2, ry2 = fbY;
     const rLen = Math.hypot(rx2 - rx1, ry2 - ry1);
-    this.matter.add.rectangle((rx1 + rx2) / 2 +50-20-20-5, 400-100+50-10, 200, T,
-      { isStatic: true, angle:-Tau/15, label: "ramp-right" });
+    this.matter.add.rectangle((rx1 + rx2) / 2, (ry1 + ry2) / 2, rLen, T,
+      { isStatic: true, angle: Math.atan2(ry2 - ry1, rx2 - rx1), label: "ramp-right" });
 
-    this.matter.add.rectangle(40, 200, 50, 300, {isStatic : true, angle : 0})
-    this.matter.add.rectangle(400+40+40, 200, 50, 300, {isStatic : true, angle : 0})
-
-    // Top cap
-    this.matter.add.rectangle(cx, panelY - T / 2, pw + T * 2, T, { isStatic: true, label: "wall-top" });
-
-    // Barrier at conveyor top
-    this.matter.add.rectangle(cx, fbY -10, tw, T, { isStatic: true, label: "funnel-barrier" });
+    // Barrier at conveyor top - flush with conveyor entrance
+    this.matter.add.rectangle(cx, fbY + T / 2, tw, T, { isStatic: true, label: "funnel-barrier" });
 
     // Screen-edge guards
-    this.matter.add.rectangle(-T / 2, GAME_HEIGHT / 2, T, GAME_HEIGHT, { isStatic: true, label: "bound-left" });
-    this.matter.add.rectangle(GAME_WIDTH + T / 2, GAME_HEIGHT / 2, T, GAME_HEIGHT, { isStatic: true, label: "bound-right" });
+    this.matter.add.rectangle(-T / 2, GAME_HEIGHT / 2, T, GAME_HEIGHT, wall("bound-left"));
+    this.matter.add.rectangle(GAME_WIDTH + T / 2, GAME_HEIGHT / 2, T, GAME_HEIGHT, wall("bound-right"));
   }
 
   private tilePos(r: number, c: number): { x: number; y: number } {
@@ -465,7 +466,7 @@ export class GameScene extends Phaser.Scene {
   private drawConveyor(): void {
     const innerW = GAME_WIDTH - CONVEYOR_MARGIN_X * 2;
     const x = CONVEYOR_MARGIN_X;
-    const y = 392;
+    const y = 480;
     this.conveyorX = x;
     this.conveyorY = y;
     this.conveyorWidth = innerW;
@@ -513,10 +514,7 @@ export class GameScene extends Phaser.Scene {
     const lanes = this.state.lanes ?? [];
     if (lanes.length === 0) return;
 
-    this.lanesY = 520;
-    const panelG = this.add.graphics();
-    panelG.fillStyle(0x4a328a, 0.28);
-    panelG.fillRoundedRect(20, this.lanesY - 16, GAME_WIDTH - 40, 280, 24);
+    this.lanesY = 610;
 
     for (let i = 0; i < lanes.length; i++) {
       this.drawMMCLane(i);
@@ -534,20 +532,17 @@ export class GameScene extends Phaser.Scene {
     const g = this.add.graphics();
     container.add(g);
 
-    g.fillStyle(0xffffff, 0.7);
-    g.fillRoundedRect(x - TUBE_WIDTH / 2, y, TUBE_WIDTH, 214, 14);
-    g.lineStyle(3, UI_TUBE_SLOT_BORDER, 0.9);
-    g.strokeRoundedRect(x - TUBE_WIDTH / 2, y, TUBE_WIDTH, 214, 14);
-
     const holeRadius = CONVEYOR_MARBLE_RADIUS * 0.42;
+    const mmcWidth = TUBE_WIDTH;
+    const mmcHeight = 32;
 
-    lane.queue.slice(0, 4).forEach((mmc, queueIndex) => {
+    lane.queue.slice(0, 6).forEach((mmc, queueIndex) => {
       const py = y + 24 + queueIndex * 44;
       const isActive = queueIndex === 0;
       g.fillStyle(MARBLE_COLORS[mmc.color], isActive ? 1 : 0.42);
-      g.fillRoundedRect(x - 22, py - 16, 44, 32, 8);
+      g.fillRoundedRect(x - mmcWidth / 2, py - 16, mmcWidth, mmcHeight, 8);
       g.lineStyle(2, 0xffffff, isActive ? 0.95 : 0.45);
-      g.strokeRoundedRect(x - 22, py - 16, 44, 32, 8);
+      g.strokeRoundedRect(x - mmcWidth / 2, py - 16, mmcWidth, mmcHeight, 8);
 
       if (isActive) {
         for (let j = 0; j < MMC_CAPACITY; j++) {
@@ -601,12 +596,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private mmcMarblePos(laneIdx: number, j: number): { x: number; y: number } {
-    const holePadding = 7;
-    const mmcWidth = 44;
-    const availableWidth = mmcWidth - holePadding * 2;
-    const step = availableWidth / Math.max(1, MMC_CAPACITY - 1);
+    const holePadding = 8;
+    const holeSpacing = (TUBE_WIDTH - holePadding * 2) / MMC_CAPACITY;
     return {
-      x: this.laneX(laneIdx) - mmcWidth / 2 + holePadding + j * step,
+      x: this.laneX(laneIdx) - TUBE_WIDTH / 2 + holePadding + j * holeSpacing + holeSpacing / 2,
       y: this.lanesY + 24,
     };
   }

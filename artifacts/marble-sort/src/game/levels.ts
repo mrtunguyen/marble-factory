@@ -36,18 +36,18 @@ export const LEVELS: LevelDef[] = [
   {
     id: 1,
     name: "Trickle Start",
-    cols: 2,
+    cols: 4,
     rows: 2,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: DEFAULT_TICK_MS,
     tiles: [
-      [B("red"), B("blue")],
-      [B("blue"), B("red")],
+      [B("red"), B("blue"), null, null],
+      [B("blue"), B("red"), null, null],
     ],
     tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
+      { color: "red", capacity: 18 },
+      { color: "blue", capacity: 18 },
     ],
   },
 
@@ -55,19 +55,19 @@ export const LEVELS: LevelDef[] = [
   {
     id: 2,
     name: "Hold the Line",
-    cols: 3,
+    cols: 4,
     rows: 2,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: DEFAULT_TICK_MS,
     tiles: [
-      [B("red"), B("blue"), B("green")],
-      [B("blue"), C("green", 2), B("red")],
+      [B("red"), B("blue"), B("green"), null],
+      [B("blue"), C("green", 2), B("red"), null],
     ],
     tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
+      { color: "red", capacity: 18 },
+      { color: "blue", capacity: 18 },
+      { color: "green", capacity: 18 },
     ],
   },
 
@@ -75,19 +75,19 @@ export const LEVELS: LevelDef[] = [
   {
     id: 3,
     name: "Mystery Cargo",
-    cols: 3,
+    cols: 4,
     rows: 2,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: DEFAULT_TICK_MS,
     tiles: [
-      [B("red"), B("blue"), B("green")],
-      [M("blue"), B("green"), B("red")],
+      [B("red"), B("blue"), B("green"), null],
+      [M("blue"), B("green"), B("red"), null],
     ],
     tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
+      { color: "red", capacity: 18 },
+      { color: "blue", capacity: 18 },
+      { color: "green", capacity: 18 },
     ],
   },
 
@@ -97,24 +97,24 @@ export const LEVELS: LevelDef[] = [
   {
     id: 4,
     name: "Padlock",
-    cols: 3,
+    cols: 4,
     rows: 2,
     marblesPerBlock: DEFAULT_MARBLES_PER_BLOCK,
     conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
     tickMs: DEFAULT_TICK_MS,
     tiles: [
-      [L("red"), B("blue"), B("green")],
-      [B("blue"), B("green"), B("red")],
+      [L("red"), B("blue"), B("green"), null],
+      [B("blue"), B("green"), B("red"), null],
     ],
     tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
+      { color: "red", capacity: 18 },
+      { color: "blue", capacity: 18 },
+      { color: "green", capacity: 18 },
     ],
   },
 
   // ───── Level 5 ─────  All twists: counter, mystery, locked, plus 4 colors.
-  // Colors: red×2, blue×2, green×2, yellow×2  →  4 tubes capacity 6.
+  // Colors: red×2, blue×2, green×2, yellow×2  →  4 tubes capacity 18.
   // Locked yellow at (0,3) — neighbor red (0,2 mystery) or red (1,3) clears
   // first; counter-3 green at (1,1).
   {
@@ -130,10 +130,10 @@ export const LEVELS: LevelDef[] = [
       [B("yellow"), C("green", 3), B("blue"), B("red")],
     ],
     tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
-      { color: "yellow", capacity: 6 },
+      { color: "red", capacity: 18 },
+      { color: "blue", capacity: 18 },
+      { color: "green", capacity: 18 },
+      { color: "yellow", capacity: 18 },
     ],
   },
 ];

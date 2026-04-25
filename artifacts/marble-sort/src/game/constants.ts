@@ -20,8 +20,8 @@ export const CONVEYOR_MARBLE_RADIUS = 14;
 export const CONVEYOR_DROP_RADIUS = 18;
 
 // Tube visuals (stacked-pill rack design)
-export const TUBE_WIDTH = 60;
-export const TUBE_GAP = 12;
+export const TUBE_WIDTH = 80;
+export const TUBE_GAP = 24;
 export const TUBE_SLOT_HEIGHT = 28; // height of one pill slot
 export const TUBE_SLOT_GAP = 2; // vertical spacing between pill slots
 export const TUBE_RACK_PADDING = 12; // inner padding of the rack panel

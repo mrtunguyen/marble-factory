@@ -25,6 +25,7 @@ import {
   UI_TUBE_SLOT_EMPTY,
   UI_TUBE_SLOT_BORDER,
   MMC_CAPACITY,
+  TAP_PARTICLE_COUNT,
 } from "../game/constants";
 import { LEVELS } from "../game/levels";
 import { drawTile, drawMarble, drawConveyorPipe } from "../game/draw";
@@ -760,6 +761,29 @@ export class GameScene extends Phaser.Scene {
     if (outcome.kind === "released" && outcome.releasedCount > 0) {
       const tilePos = this.tilePos(r, c);
       const newCount = this.state.pendingEject.length - before;
+
+      // Screen shake on release
+      this.cameras.main.shake(150, 0.01);
+
+      // Particle burst - bright yellow dots
+      for (let i = 0; i < TAP_PARTICLE_COUNT; i++) {
+        const angle = (i / TAP_PARTICLE_COUNT) * Math.PI * 2;
+        const vx = Math.cos(angle) * 60;
+        const vy = Math.sin(angle) * 60 - 50;
+        const dot = this.add.graphics();
+        dot.fillStyle(0xffff00);
+        dot.fillCircle(tilePos.x, tilePos.y, 4);
+        this.tweens.add({
+          targets: dot,
+          x: tilePos.x + vx,
+          y: tilePos.y + vy,
+          scale: 0,
+          duration: 400,
+          ease: "Quad.out",
+          onComplete: () => dot.destroy(),
+        });
+      }
+
       for (let k = 0; k < newCount; k++) {
         const m = this.state.pendingEject[before + k];
         const targetScale = GameScene.MARBLE_SCALES[k % 3];

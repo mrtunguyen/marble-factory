@@ -29,6 +29,7 @@ export const TUBE_TOP_PADDING = 14;
 
 // Animation
 export const MARBLE_ANIM_MS = 220;
+export const TAP_PARTICLE_COUNT = 16;
 
 // Default level numbers
 export const DEFAULT_MARBLES_PER_BLOCK = 9;

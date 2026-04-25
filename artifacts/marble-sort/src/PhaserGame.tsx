@@ -5,6 +5,7 @@ import { GameScene } from "./scenes/GameScene";
 import { LevelCompleteScene } from "./scenes/LevelCompleteScene";
 import { GameOverScene } from "./scenes/GameOverScene";
 import { EditorScene } from "./scenes/EditorScene";
+import { MapScene } from "./scenes/MapScene";
 import { GAME_WIDTH, GAME_HEIGHT } from "./game/constants";
 
 export function PhaserGame() {
@@ -21,6 +22,7 @@ export function PhaserGame() {
       backgroundColor: "#1a1a2e",
       scene: [
         MenuScene,
+        MapScene,
         GameScene,
         LevelCompleteScene,
         GameOverScene,

@@ -13,6 +13,7 @@ import {
   SCENE_MENU,
   SCENE_COMPLETE,
   SCENE_GAMEOVER,
+  SCENE_MAP,
   UI_BG_TOP,
   UI_BG_BOTTOM,
   UI_GRID_BG,
@@ -32,6 +33,7 @@ import {
   TAP_PARTICLE_COUNT,
 } from "../game/constants";
 import { LEVELS } from "../game/levels";
+import { markCompleted, unlockLevel } from "../game/progression";
 import { drawTile, drawMarble, drawConveyorPipe } from "../game/draw";
 import {
   buildGameState,
@@ -83,12 +85,13 @@ export class GameScene extends Phaser.Scene {
   private funnelPanelW = 0;
   private funnelPanelBottom = 0;
   private physicsDebugOn = false;
+  private fromMap = false;
 
   constructor() {
     super("GameScene");
   }
 
-  init(data: { levelId?: number; level?: LevelDef }): void {
+  init(data: { levelId?: number; level?: LevelDef; fromMap?: boolean }): void {
     if (data?.level) {
       this.level = data.level;
     } else {
@@ -96,6 +99,7 @@ export class GameScene extends Phaser.Scene {
       const found = LEVELS.find((l) => l.id === id) ?? LEVELS[0];
       this.level = found;
     }
+    this.fromMap = data?.fromMap ?? false;
     this.state = buildGameState(this.level);
     this.tileSprites = [];
     this.marbleSprites = new Map();
@@ -983,9 +987,18 @@ export class GameScene extends Phaser.Scene {
     if (result.statusChanged) {
       this.time.delayedCall(700, () => {
         if (this.state.status === "won") {
-          this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
+          if (this.fromMap) {
+            markCompleted(this.level.id);
+            const idx = LEVELS.findIndex((l) => l.id === this.level.id);
+            const nextId =
+              idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1].id : undefined;
+            if (nextId !== undefined) unlockLevel(nextId);
+            this.scene.start(SCENE_MAP, { justUnlocked: nextId });
+          } else {
+            this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
+          }
         } else if (this.state.status === "lost") {
-          this.scene.start(SCENE_GAMEOVER, { levelId: this.level.id });
+          this.scene.start(SCENE_GAMEOVER, { levelId: this.level.id, fromMap: this.fromMap });
         }
       });
     }

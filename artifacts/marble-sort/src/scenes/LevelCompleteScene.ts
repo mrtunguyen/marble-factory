@@ -4,6 +4,7 @@ import {
   GAME_HEIGHT,
   SCENE_GAME,
   SCENE_MENU,
+  SCENE_MAP,
   UI_BG_TOP,
   UI_BG_BOTTOM,
   MARBLE_COLORS,
@@ -11,16 +12,22 @@ import {
 import { LEVELS } from "../game/levels";
 import { drawMarble } from "../game/draw";
 import type { MarbleColor } from "../game/types";
+import { markCompleted, unlockLevel } from "../game/progression";
 
 export class LevelCompleteScene extends Phaser.Scene {
   constructor() {
     super("LevelCompleteScene");
   }
 
-  create(data: { levelId: number }): void {
+  create(data: { levelId: number; fromMap?: boolean }): void {
     const id = data?.levelId ?? 1;
+    const fromMap = data?.fromMap ?? false;
     const idx = LEVELS.findIndex((l) => l.id === id);
     const next = idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1] : null;
+
+    // Persist progress
+    markCompleted(id);
+    if (next) unlockLevel(next.id);
 
     const bg = this.add.graphics();
     bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
@@ -86,7 +93,7 @@ export class LevelCompleteScene extends Phaser.Scene {
 
     if (next) {
       this.makeButton(GAME_WIDTH / 2, 520, "NEXT LEVEL", 0x6dd35f, () => {
-        this.scene.start(SCENE_GAME, { levelId: next.id });
+        this.scene.start(SCENE_GAME, { levelId: next.id, fromMap });
       });
     } else {
       this.add
@@ -101,10 +108,13 @@ export class LevelCompleteScene extends Phaser.Scene {
     }
 
     this.makeButton(GAME_WIDTH / 2, 610, "REPLAY", 0x49b9ff, () =>
-      this.scene.start(SCENE_GAME, { levelId: id }),
+      this.scene.start(SCENE_GAME, { levelId: id, fromMap }),
     );
-    this.makeButton(GAME_WIDTH / 2, 700, "MENU", 0xb472ff, () =>
-      this.scene.start(SCENE_MENU),
+
+    const mapOrMenu = fromMap ? SCENE_MAP : SCENE_MENU;
+    const mapOrMenuLabel = fromMap ? "WORLD MAP" : "MENU";
+    this.makeButton(GAME_WIDTH / 2, 700, mapOrMenuLabel, 0xb472ff, () =>
+      this.scene.start(mapOrMenu),
     );
   }
 

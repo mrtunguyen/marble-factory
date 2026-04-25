@@ -4,6 +4,7 @@ import {
   GAME_HEIGHT,
   SCENE_GAME,
   SCENE_MENU,
+  SCENE_MAP,
   UI_BG_TOP,
   UI_BG_BOTTOM,
 } from "../game/constants";
@@ -13,8 +14,9 @@ export class GameOverScene extends Phaser.Scene {
     super("GameOverScene");
   }
 
-  create(data: { levelId: number }): void {
+  create(data: { levelId: number; fromMap?: boolean }): void {
     const id = data?.levelId ?? 1;
+    const fromMap = data?.fromMap ?? false;
 
     const bg = this.add.graphics();
     bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
@@ -55,10 +57,12 @@ export class GameOverScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.makeButton(GAME_WIDTH / 2, 560, "RETRY", 0x6dd35f, () =>
-      this.scene.start(SCENE_GAME, { levelId: id }),
+      this.scene.start(SCENE_GAME, { levelId: id, fromMap }),
     );
-    this.makeButton(GAME_WIDTH / 2, 650, "MENU", 0xb472ff, () =>
-      this.scene.start(SCENE_MENU),
+    const exitLabel = fromMap ? "WORLD MAP" : "MENU";
+    const exitScene = fromMap ? SCENE_MAP : SCENE_MENU;
+    this.makeButton(GAME_WIDTH / 2, 650, exitLabel, 0xb472ff, () =>
+      this.scene.start(exitScene),
     );
   }
 

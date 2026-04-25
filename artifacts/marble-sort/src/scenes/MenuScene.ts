@@ -2,15 +2,11 @@ import Phaser from "phaser";
 import {
   GAME_WIDTH,
   GAME_HEIGHT,
-  SCENE_GAME,
   SCENE_EDITOR,
-  UI_BG_TOP,
-  UI_BG_BOTTOM,
-  UI_TEXT_LIGHT,
+  SCENE_MAP,
   UI_ACCENT,
   MARBLE_COLORS,
 } from "../game/constants";
-import { LEVELS } from "../game/levels";
 import { drawMarble } from "../game/draw";
 import type { MarbleColor } from "../game/types";
 
@@ -19,11 +15,28 @@ export class MenuScene extends Phaser.Scene {
     super("MenuScene");
   }
 
+  preload(): void {
+    this.load.image("menu-bg", "assets/backgrounds/background.png");
+  }
+
   create(): void {
-    // Background
-    const bg = this.add.graphics();
-    bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
-    bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    // Background image — cover fit with slow zoom
+    const bg = this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "menu-bg");
+    const coverScale = Math.max(GAME_WIDTH / bg.width, GAME_HEIGHT / bg.height);
+    bg.setScale(coverScale);
+    this.tweens.add({
+      targets: bg,
+      scale: coverScale * 1.08,
+      duration: 12000,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.inOut",
+    });
+
+    // Dark overlay for text readability
+    this.add.graphics()
+      .fillStyle(0x000000, 0.45)
+      .fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     this.drawDecorations();
 
@@ -57,40 +70,13 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // Level select
-    this.add
-      .text(GAME_WIDTH / 2, 310, "Choose a level", {
-        fontFamily: "Arial, sans-serif",
-        fontSize: "18px",
-        color: UI_TEXT_LIGHT,
-      })
-      .setOrigin(0.5);
-
-    const cols = 5;
-    const buttonW = 86;
-    const buttonH = 100;
-    const gap = 12;
-    const totalW = cols * buttonW + (cols - 1) * gap;
-    const startX = (GAME_WIDTH - totalW) / 2 + buttonW / 2;
-    const startY = 380;
-    LEVELS.forEach((level, idx) => {
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-      const x = startX + col * (buttonW + gap);
-      const y = startY + row * (buttonH + gap);
-      this.makeLevelButton(
-        x,
-        y,
-        buttonW,
-        buttonH,
-        level.id,
-        level.name,
-        level.tubes.map((t) => t.color),
-      );
-    });
+    // Start button
+    this.makeButton(GAME_WIDTH / 2, GAME_HEIGHT / 2, "START", () =>
+      this.scene.start(SCENE_MAP),
+    );
 
     // Editor button
-    this.makeButton(GAME_WIDTH / 2, GAME_HEIGHT - 130, "LEVEL EDITOR", () =>
+    this.makeButton(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 80, "LEVEL EDITOR", () =>
       this.scene.start(SCENE_EDITOR),
     );
 
@@ -107,67 +93,6 @@ export class MenuScene extends Phaser.Scene {
         },
       )
       .setOrigin(0.5);
-  }
-
-  private makeLevelButton(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    id: number,
-    name: string,
-    tubeColors: MarbleColor[],
-  ): void {
-    const c = this.add.container(x, y);
-    const palette = [0xff5b6e, 0x49b9ff, 0x6dd35f, 0xffd84a, 0xb472ff, 0xff9c42];
-    const color = palette[(id - 1) % palette.length];
-
-    const g = this.add.graphics();
-    g.fillStyle(0x000000, 0.2);
-    g.fillRoundedRect(-w / 2 + 2, -h / 2 + 4, w, h, 14);
-    g.fillStyle(color, 1);
-    g.fillRoundedRect(-w / 2, -h / 2, w, h, 14);
-    g.lineStyle(3, 0xffffff, 0.55);
-    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 14);
-    c.add(g);
-
-    const numTxt = this.add
-      .text(0, -28, `${id}`, {
-        fontFamily: "Arial Black, sans-serif",
-        fontSize: "30px",
-        color: "#ffffff",
-        stroke: "#000000",
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5);
-    c.add(numTxt);
-
-    // Tube color preview marbles, centered horizontally
-    const marbleSize = 12;
-    const colorRow = tubeColors.slice(0, 4);
-    const totalRowW = colorRow.length * (marbleSize + 2) - 2;
-    colorRow.forEach((tc, i) => {
-      const mg = this.add.graphics();
-      drawMarble(mg, marbleSize, tc);
-      mg.x = -totalRowW / 2 + i * (marbleSize + 2) + marbleSize / 2;
-      mg.y = 6;
-      c.add(mg);
-    });
-
-    const lblTxt = this.add
-      .text(0, 32, name, {
-        fontFamily: "Arial, sans-serif",
-        fontSize: "10px",
-        color: "#ffffff",
-      })
-      .setOrigin(0.5);
-    c.add(lblTxt);
-
-    c.setSize(w, h);
-    c.setInteractive({ useHandCursor: true });
-    c.on("pointerdown", () => this.scene.start(SCENE_GAME, { levelId: id }));
-    c.on("pointerover", () => c.setScale(1.08));
-    c.on("pointerout", () => c.setScale(1));
   }
 
   private makeButton(x: number, y: number, label: string, cb: () => void): void {

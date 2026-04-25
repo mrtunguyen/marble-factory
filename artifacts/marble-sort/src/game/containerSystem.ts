@@ -113,6 +113,37 @@ export function allTubesCorrect(state: GameState): boolean {
   return state.tubes.every((tube) => tube.marbles.length === 0 || tubeIsComplete(tube));
 }
 
+/** True when all per-column queues are empty (no more tubes left to sort). */
+export function allQueuesExhausted(state: GameState): boolean {
+  return state.tubeQueues.every((q) => q.length === 0);
+}
+
+/**
+ * If the active tube at colIdx is complete, pop it and replace it with the
+ * next tube from the queue. Returns the popped tube (for animation) or null
+ * if the tube was not complete.
+ */
+export function popActiveTube(state: GameState, colIdx: number): Tube | null {
+  const active = state.tubes[colIdx];
+  if (!tubeIsComplete(active)) return null;
+
+  const popped = active;
+  const queue = state.tubeQueues[colIdx];
+
+  if (queue.length > 0) {
+    state.tubes[colIdx] = queue.shift()!;
+  } else {
+    // No more queued tubes — leave an empty buffer tube so the column persists.
+    state.tubes[colIdx] = {
+      color: active.color,
+      capacity: active.capacity,
+      marbles: [],
+    };
+  }
+
+  return popped;
+}
+
 export function tubeIsComplete(t: Tube): boolean {
   if (t.marbles.length !== t.capacity) return false;
   const first = t.marbles[0];

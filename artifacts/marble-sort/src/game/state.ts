@@ -14,6 +14,7 @@ import { MAX_CONVEYOR_CAPACITY } from "./constants";
 import {
   routeMarble,
   allTubesCorrect,
+  allQueuesExhausted,
   type RouteResult,
 } from "./containerSystem";
 
@@ -41,16 +42,30 @@ export function buildGameState(def: LevelDef): GameState {
     tiles.push(row);
   }
 
-  const tubes: Tube[] = def.tubes.map((s) => ({
-    color: s.color,
-    capacity: s.capacity,
-    marbles: [],
-  }));
-
   const conveyorCapacity = Math.min(
     def.conveyorCapacity,
     MAX_CONVEYOR_CAPACITY,
   );
+
+  // The first stack definition becomes the visible active tube. Remaining
+  // definitions are queued behind it for the pop-and-advance mechanic.
+  let nextId = 1;
+  const tubes: Tube[] = def.tubes.map((spec, colIdx) => {
+    const activeColors = def.tubeQueueDefs?.[colIdx]?.[0] ?? [];
+    return {
+      color: spec.color,
+      capacity: spec.capacity,
+      marbles: activeColors.map((color) => ({ id: nextId++, color })),
+    };
+  });
+  const tubeQueues: Tube[][] = def.tubes.map((spec, colIdx) => {
+    const colDefs = def.tubeQueueDefs?.[colIdx]?.slice(1) ?? [];
+    return colDefs.map((colors) => ({
+      color: spec.color,
+      capacity: spec.capacity,
+      marbles: colors.map((color) => ({ id: nextId++, color })),
+    }));
+  });
 
   const state: GameState = {
     cols: def.cols,
@@ -59,8 +74,9 @@ export function buildGameState(def: LevelDef): GameState {
     pendingEject: [],
     conveyor: new Array(conveyorCapacity).fill(null),
     tubes,
+    tubeQueues,
     status: "playing",
-    nextMarbleId: 1,
+    nextMarbleId: nextId,
     marblesPerBlock: def.marblesPerBlock,
     tickMs: def.tickMs,
     history: [],
@@ -82,6 +98,13 @@ export function snapshot(state: GameState): GameStateSnapshot {
       capacity: t.capacity,
       marbles: t.marbles.map((m) => ({ ...m })),
     })),
+    tubeQueues: state.tubeQueues.map((q) =>
+      q.map((t) => ({
+        color: t.color,
+        capacity: t.capacity,
+        marbles: t.marbles.map((m) => ({ ...m })),
+      })),
+    ),
     nextMarbleId: state.nextMarbleId,
   };
 }
@@ -98,6 +121,13 @@ export function restoreSnapshot(
     capacity: t.capacity,
     marbles: t.marbles.map((m) => ({ ...m })),
   }));
+  state.tubeQueues = snap.tubeQueues.map((q) =>
+    q.map((t) => ({
+      color: t.color,
+      capacity: t.capacity,
+      marbles: t.marbles.map((m) => ({ ...m })),
+    })),
+  );
   state.nextMarbleId = snap.nextMarbleId;
   state.status = "playing";
   refreshLocks(state);
@@ -135,12 +165,14 @@ export function tick(state: GameState): TickResult {
     }
   }
 
-  // 4. Win check: grid empty, queue empty, conveyor empty, all tubes correct.
+  // 4. Win check: grid empty, queue empty, conveyor empty, all tubes correct,
+  //    and all per-column tube queues exhausted.
   if (
     isGridEmpty(state) &&
     state.pendingEject.length === 0 &&
     isConveyorEmpty(state) &&
-    allTubesCorrect(state)
+    allTubesCorrect(state) &&
+    allQueuesExhausted(state)
   ) {
     state.status = "won";
     return { injected, emitted, routed, statusChanged: true };
@@ -150,4 +182,4 @@ export function tick(state: GameState): TickResult {
 }
 
 export { isGridEmpty } from "./gridManager";
-export { allTubesCorrect } from "./containerSystem";
+export { allTubesCorrect, allQueuesExhausted } from "./containerSystem";

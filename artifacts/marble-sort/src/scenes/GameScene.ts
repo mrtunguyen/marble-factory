@@ -48,7 +48,8 @@ import {
   allTubesCorrect,
 } from "../game/state";
 import { tapTile } from "../game/gridManager";
-import { moveTopGroup } from "../game/containerSystem";
+import { moveTopGroup, tubeIsComplete, popActiveTube } from "../game/containerSystem";
+import { allQueuesExhausted } from "../game/state";
 import type { GameState, GridTile, LevelDef, Marble } from "../game/types";
 
 interface TileSprite {
@@ -76,6 +77,10 @@ export class GameScene extends Phaser.Scene {
   private statusText!: Phaser.GameObjects.Text;
   private selectedTubeIndex: number | null = null;
   private tubeSelection?: Phaser.GameObjects.Graphics;
+  private tubeCompleteOverlays: (Phaser.GameObjects.Graphics | null)[] = [];
+  private tubeCountTexts: Phaser.GameObjects.Text[] = [];
+  private tubeXs: number[] = [];
+  private tubeBodyHeight = 0;
   private gridOriginX = 0;
   private gridOriginY = 0;
   private conveyorX = 0; // left edge of inner pipe
@@ -125,6 +130,10 @@ export class GameScene extends Phaser.Scene {
         strokeThickness: 3,
       })
       .setOrigin(0.5, 0);
+
+    // Spawn any marbles that are already present in the initial state, such as
+    // prefilled sorting tubes.
+    this.fullRebuild();
   }
 
   // ─────────────────────────── TOP BAR ───────────────────────────
@@ -468,6 +477,7 @@ export class GameScene extends Phaser.Scene {
       capacity * TUBE_MARBLE_DIAMETER + (capacity - 1) * TUBE_SLOT_GAP;
     const top = 486;
     this.tubesY = top;
+    this.tubeBodyHeight = bodyHeight;
 
     // Panel behind tubes
     const panelG = this.add.graphics();
@@ -479,9 +489,13 @@ export class GameScene extends Phaser.Scene {
     panelG.fillStyle(0xffffff, 0.25);
     panelG.fillRoundedRect(36, top - 1, GAME_WIDTH - 72, 26, 16);
 
+    this.tubeXs = [];
+    this.tubeCountTexts = [];
+
     for (let i = 0; i < n; i++) {
       const tube = this.state.tubes[i];
       const x = startX + i * (TUBE_WIDTH + TUBE_GAP);
+      this.tubeXs.push(x);
       const y = top + 12;
       const tubeBodyH =
         tube.capacity * TUBE_MARBLE_DIAMETER +
@@ -499,6 +513,21 @@ export class GameScene extends Phaser.Scene {
         tube.color,
       );
 
+      // Queue count badge below each tube.
+      const badgeY = top + 12 + TUBE_CAP_HEIGHT + tubeBodyH + TUBE_BOTTOM_HEIGHT + 4;
+      const countText = this.add
+        .text(x + TUBE_WIDTH / 2, badgeY, "", {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "13px",
+          color: "#c8e8ec",
+          stroke: "#1a2a3a",
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5, 0)
+        .setDepth(12);
+      this.tubeCountTexts.push(countText);
+      this.updateTubeCount(i);
+
       const hitZone = this.add
         .zone(
           x + TUBE_WIDTH / 2,
@@ -509,6 +538,8 @@ export class GameScene extends Phaser.Scene {
         .setInteractive({ useHandCursor: true });
       hitZone.on("pointerdown", () => this.handleTubeTap(i));
     }
+
+    this.tubeCompleteOverlays = new Array(n).fill(null);
   }
 
   private tubeRect(tubeIdx: number): {
@@ -576,7 +607,78 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateTubeCount(i: number): void {
-    void i;
+    const text = this.tubeCountTexts[i];
+    if (!text) return;
+    const qLen = this.state.tubeQueues[i]?.length ?? 0;
+    text.setText(qLen > 0 ? `+${qLen} more` : "");
+  }
+
+  private redrawTubeCompleteOverlays(): void {
+    this.tubeCompleteOverlays.forEach((g) => g?.destroy());
+    this.tubeCompleteOverlays = this.state.tubes.map((tube, i) => {
+      if (!tubeIsComplete(tube)) return null;
+      const rect = this.tubeRect(i);
+      const g = this.add.graphics();
+      g.lineStyle(4, 0x44dd88, 1);
+      g.strokeRoundedRect(
+        rect.x - 5, rect.y - 5,
+        rect.width + 10, rect.height + 10,
+        17,
+      );
+      g.setDepth(8);
+      this.tweens.add({
+        targets: g,
+        alpha: { from: 0.5, to: 1 },
+        duration: 300,
+        yoyo: true,
+        repeat: 1,
+      });
+      return g;
+    });
+  }
+
+  /** Tween marbles in the given column upward off-screen, then pop the active
+   *  tube and rebuild. Chains to pop again if the newly promoted tube is also
+   *  already complete (e.g. pre-sorted queue entries). */
+  private animatePopAndAdvance(colIdx: number): void {
+    const tube = this.state.tubes[colIdx];
+    const targets = tube.marbles
+      .map((m) => this.marbleSprites.get(m.id)?.container)
+      .filter(Boolean) as Phaser.GameObjects.Container[];
+
+    const doPopAndRebuild = () => {
+      popActiveTube(this.state, colIdx);
+      this.fullRebuild();
+      this.checkManualWin();
+      // Chain: if the new active tube is already complete, pop it too.
+      if (tubeIsComplete(this.state.tubes[colIdx])) {
+        this.time.delayedCall(200, () => this.animatePopAndAdvance(colIdx));
+      }
+    };
+
+    if (targets.length === 0) {
+      doPopAndRebuild();
+      return;
+    }
+
+    this.tweens.add({
+      targets,
+      y: `-=${TUBE_CAP_HEIGHT + this.tubeBodyHeight + 60}`,
+      alpha: 0,
+      duration: 380,
+      ease: "Cubic.in",
+      onComplete: doPopAndRebuild,
+    });
+  }
+
+  /** After any move, check every column for a newly completed tube and trigger pop. */
+  private tryPopCompleteTubes(): void {
+    for (let i = 0; i < this.state.tubes.length; i++) {
+      if (tubeIsComplete(this.state.tubes[i])) {
+        this.time.delayedCall(300, () => this.animatePopAndAdvance(i));
+        return; // handle one at a time; fullRebuild after the first will re-evaluate
+      }
+    }
   }
 
   // ─────────────────────────── MARBLE SPRITES ───────────────────────────
@@ -629,8 +731,13 @@ export class GameScene extends Phaser.Scene {
     if (this.state.status !== "playing") return;
 
     if (this.selectedTubeIndex === null) {
-      if (this.state.tubes[tubeIdx].marbles.length === 0) {
+      const tube = this.state.tubes[tubeIdx];
+      if (tube.marbles.length === 0) {
         this.flashStatus("Empty");
+        return;
+      }
+      if (tubeIsComplete(tube)) {
+        this.flashStatus("Done!");
         return;
       }
       this.selectedTubeIndex = tubeIdx;
@@ -648,7 +755,13 @@ export class GameScene extends Phaser.Scene {
     const snap = snapshot(this.state);
     const result = moveTopGroup(this.state, sourceIdx, tubeIdx);
     if (!result.ok) {
-      this.flashStatus("Can't move");
+      const msgs: Record<string, string> = {
+        "same-tube":       "Same tube",
+        "empty-source":    "Empty",
+        "color-mismatch":  "Wrong color",
+        "not-enough-room": "No room",
+      };
+      this.flashStatus(msgs[result.reason ?? ""] ?? "Can't move");
       return;
     }
 
@@ -656,7 +769,7 @@ export class GameScene extends Phaser.Scene {
     this.selectedTubeIndex = null;
     this.redrawTubeSelection();
     this.fullRebuild();
-    this.checkManualWin();
+    this.tryPopCompleteTubes();
   }
 
   private handleTileTap(r: number, c: number): void {
@@ -773,6 +886,7 @@ export class GameScene extends Phaser.Scene {
       this.updateTubeCount(i);
     });
 
+    this.redrawTubeCompleteOverlays();
     this.statusText.setText("");
   }
 
@@ -785,7 +899,8 @@ export class GameScene extends Phaser.Scene {
       gridEmpty &&
       this.state.pendingEject.length === 0 &&
       conveyorEmpty &&
-      allTubesCorrect(this.state)
+      allTubesCorrect(this.state) &&
+      allQueuesExhausted(this.state)
     ) {
       this.state.status = "won";
       this.time.delayedCall(350, () => {
@@ -891,6 +1006,10 @@ export class GameScene extends Phaser.Scene {
           });
         }
         this.updateTubeCount(tubeIdx);
+        // Check if routing completed this tube — if so, schedule a pop.
+        if (tubeIsComplete(this.state.tubes[tubeIdx])) {
+          this.time.delayedCall(400, () => this.animatePopAndAdvance(tubeIdx));
+        }
       } else {
         // Routing failed — animate marble dropping away from the sorting exit.
         // GameOver scene.

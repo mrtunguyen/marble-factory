@@ -1,13 +1,11 @@
 // Built-in level definitions for Marble Sort.
 //
-// Authoring rules so every level is winnable:
-//   - For each color, sum of marbles released by tiles of that color
-//     (always = marblesPerBlock per tile, regardless of mystery/counter/locked
-//     wrapping) must be EXACTLY divisible by, and totalled to, the matching
-//     tubes' total capacity.
+// Authoring notes:
+//   - Each level uses four sorting tubes with a fixed capacity of four slots.
+//   - tubeQueueDefs provide the visible starting stack for each tube,
+//     ordered bottom → top.
 //   - Locked tiles need at least one non-locked 4-neighbor that will be
 //     consumed before them, so the lock can be opened.
-//   - Mystery tiles' hidden colors count toward the color totals.
 import {
   DEFAULT_CONVEYOR_CAPACITY,
   DEFAULT_MARBLES_PER_BLOCK,
@@ -31,8 +29,15 @@ const L = (color: LevelTile["color"]): LevelTile => ({
   color,
 });
 
+const STACK_TUBES = [
+  { color: "yellow", capacity: 4 },
+  { color: "pink", capacity: 4 },
+  { color: "cyan", capacity: 4 },
+  { color: "green", capacity: 4 },
+] satisfies LevelDef["tubes"];
+
 export const LEVELS: LevelDef[] = [
-  // ───── Level 1 ─────  Pure intro: tap blocks → marbles flow → 2 tubes fill.
+  // ───── Level 1 ─────  Prefilled stack puzzle: tubes start with mixed blocks.
   {
     id: 1,
     name: "Trickle Start",
@@ -45,9 +50,12 @@ export const LEVELS: LevelDef[] = [
       [B("red"), B("blue")],
       [B("blue"), B("red")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
+    tubes: STACK_TUBES,
+    tubeQueueDefs: [
+      [["yellow", "pink", "pink", "cyan"]],
+      [["pink", "cyan", "green", "yellow"]],
+      [["green", "yellow", "cyan", "pink"]],
+      [["cyan", "green", "yellow", "green"]],
     ],
   },
 
@@ -64,10 +72,12 @@ export const LEVELS: LevelDef[] = [
       [B("red"), B("blue"), B("green")],
       [B("blue"), C("green", 2), B("red")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
+    tubes: STACK_TUBES,
+    tubeQueueDefs: [
+      [["red", "blue", "green", "cyan"]],
+      [["green", "red", "blue", "pink"]],
+      [["blue", "green", "red", "yellow"]],
+      [["yellow", "cyan", "pink", "green"]],
     ],
   },
 
@@ -84,10 +94,12 @@ export const LEVELS: LevelDef[] = [
       [B("red"), B("blue"), B("green")],
       [M("blue"), B("green"), B("red")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
+    tubes: STACK_TUBES,
+    tubeQueueDefs: [
+      [["blue", "pink", "green", "cyan"]],
+      [["green", "cyan", "blue", "red"]],
+      [["red", "blue", "pink", "green"]],
+      [["cyan", "green", "red", "pink"]],
     ],
   },
 
@@ -106,15 +118,16 @@ export const LEVELS: LevelDef[] = [
       [L("red"), B("blue"), B("green")],
       [B("blue"), B("green"), B("red")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
+    tubes: STACK_TUBES,
+    tubeQueueDefs: [
+      [["red", "blue", "green", "yellow"]],
+      [["blue", "green", "red", "cyan"]],
+      [["green", "red", "blue", "pink"]],
+      [["cyan", "pink", "yellow", "green"]],
     ],
   },
 
   // ───── Level 5 ─────  All twists: counter, mystery, locked, plus 4 colors.
-  // Colors: red×2, blue×2, green×2, yellow×2  →  4 tubes capacity 6.
   // Locked yellow at (0,3) — neighbor red (0,2 mystery) or red (1,3) clears
   // first; counter-3 green at (1,1).
   {
@@ -129,11 +142,12 @@ export const LEVELS: LevelDef[] = [
       [B("blue"), B("green"), M("red"), L("yellow")],
       [B("yellow"), C("green", 3), B("blue"), B("red")],
     ],
-    tubes: [
-      { color: "red", capacity: 6 },
-      { color: "blue", capacity: 6 },
-      { color: "green", capacity: 6 },
-      { color: "yellow", capacity: 6 },
+    tubes: STACK_TUBES,
+    tubeQueueDefs: [
+      [["blue", "yellow", "green", "red"]],
+      [["yellow", "green", "red", "cyan"]],
+      [["green", "blue", "yellow", "pink"]],
+      [["red", "blue", "red", "green"]],
     ],
   },
 ];

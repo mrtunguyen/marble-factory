@@ -60,6 +60,9 @@ export interface LevelDef {
   // tiles[row][col] — null = empty cell
   tiles: (LevelTile | null)[][];
   tubes: TubeSpec[];
+  // Optional pre-filled tube stacks per column. The first stack is visible at
+  // level start; remaining stacks wait behind it (each bottom→top).
+  tubeQueueDefs?: MarbleColor[][][];
 }
 
 export interface GameState {
@@ -69,6 +72,9 @@ export interface GameState {
   pendingEject: Marble[];          // marbles waiting to enter conveyor
   conveyor: (Marble | null)[];     // index 0 = entry, last index = sorting exit
   tubes: Tube[];
+  // Queue of upcoming tube-containers per column. tubeQueues[i][0] is the
+  // next tube to become active for column i when the current one is popped.
+  tubeQueues: Tube[][];
   status: "playing" | "won" | "lost";
   nextMarbleId: number;
   marblesPerBlock: number;
@@ -81,5 +87,6 @@ export interface GameStateSnapshot {
   pendingEject: Marble[];
   conveyor: (Marble | null)[];
   tubes: Tube[];
+  tubeQueues: Tube[][];
   nextMarbleId: number;
 }

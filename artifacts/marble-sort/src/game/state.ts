@@ -5,6 +5,7 @@ import type {
   GridTile,
   LevelDef,
   Marble,
+  MarbleColor,
   Tube,
 } from "./types";
 import { refreshLocks, isGridEmpty } from "./gridManager";
@@ -131,6 +132,18 @@ export interface TickResult {
   statusChanged: boolean;        // status moved from "playing" to won/lost
 }
 
+/** Check if conveyor is full and no marble color matches any active MMC head. */
+function isConveyorDeadlock(state: GameState): boolean {
+  if (state.conveyor.some(s => s === null)) return false; // not full
+  const activeMmcColors = new Set(
+    (state.lanes ?? [])
+      .map(lane => lane.queue[0]?.color)
+      .filter((c): c is MarbleColor => !!c)
+  );
+  if (activeMmcColors.size === 0) return false; // all lanes done; win check handles it
+  return !state.conveyor.some(m => m && activeMmcColors.has(m.color));
+}
+
 /** Advance one tick. The renderer should call this on a fixed cadence
  *  (state.tickMs) while state.status === "playing". */
 export function tick(
@@ -141,21 +154,26 @@ export function tick(
     return { injected: null, emitted: null, pickups: [], shipped: [], statusChanged: false };
   }
 
-  // 1. Drain the sorting exit before shifting so we don't lose it.
+  // 1. Drain the sorting exit and loop it back to the entry.
   const emitted = tickConveyor(state);
   if (emitted) {
-    state.status = "lost";
-    return { injected: null, emitted, pickups: [], shipped: [], statusChanged: true };
+    state.conveyor[0] = emitted; // wrap marble back to entry
   }
 
-  // 2. Inject from pending-eject queue into the entry slot.
+  // 2. Inject from pending-eject queue into the entry slot (no-op if occupied).
   const injected = injectFromQueue(state);
 
   // 3. MMCs can only take marbles from their adjacent conveyor slot.
   const pickups = pickupFromConveyor(state, laneSlotIndex);
   const shipped = shipFilledMMCs(state);
 
-  // 4. Win check: grid empty, queue empty, conveyor empty, all MMCs complete.
+  // 4. Deadlock check: conveyor full with no matching colors for active MMCs.
+  if (isConveyorDeadlock(state)) {
+    state.status = "lost";
+    return { injected, emitted, pickups, shipped, statusChanged: true };
+  }
+
+  // 5. Win check: grid empty, queue empty, conveyor empty, all MMCs complete.
   if (
     isGridEmpty(state) &&
     state.pendingEject.length === 0 &&

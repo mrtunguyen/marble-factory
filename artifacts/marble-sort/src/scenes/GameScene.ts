@@ -314,7 +314,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createFunnelColliders(): void {
-    const T = 40;
+    const T = 20;
     const cx = GAME_WIDTH / 2;
     const px = this.funnelPanelX;
     const pw = this.funnelPanelW;
@@ -326,12 +326,12 @@ export class GameScene extends Phaser.Scene {
     // Single ramp per side: panel top-corner → throat
     const lx1 = px, ly1 = panelY, lx2 = cx - tw / 2, ly2 = fbY;
     const lLen = Math.hypot(lx2 - lx1, ly2 - ly1);
-    this.matter.add.rectangle((lx1 + lx2) / 2 -20+20, 400-100+50, 200, T,
+    this.matter.add.rectangle((lx1 + lx2) / 2 -20+20, 400-100+50-10, 200, T,
       { isStatic: true, angle: Tau/15, label: "ramp-left" });
 
     const rx1 = px + pw, ry1 = panelY, rx2 = cx + tw / 2, ry2 = fbY;
     const rLen = Math.hypot(rx2 - rx1, ry2 - ry1);
-    this.matter.add.rectangle((rx1 + rx2) / 2 +50-20-20-5, 400-100+50, 200, T,
+    this.matter.add.rectangle((rx1 + rx2) / 2 +50-20-20-5, 400-100+50-10, 200, T,
       { isStatic: true, angle:-Tau/15, label: "ramp-right" });
 
     this.matter.add.rectangle(40, 200, 50, 300, {isStatic : true, angle : 0})
@@ -341,7 +341,7 @@ export class GameScene extends Phaser.Scene {
     this.matter.add.rectangle(cx, panelY - T / 2, pw + T * 2, T, { isStatic: true, label: "wall-top" });
 
     // Barrier at conveyor top
-    this.matter.add.rectangle(cx, fbY + T / 2, tw, T, { isStatic: true, label: "funnel-barrier" });
+    this.matter.add.rectangle(cx, fbY -10, tw, T, { isStatic: true, label: "funnel-barrier" });
 
     // Screen-edge guards
     this.matter.add.rectangle(-T / 2, GAME_HEIGHT / 2, T, GAME_HEIGHT, { isStatic: true, label: "bound-left" });
@@ -967,22 +967,8 @@ export class GameScene extends Phaser.Scene {
       });
     });
 
-    // 4. A marble that reaches the conveyor exit was not taken by an MMC.
-    if (result.emitted) {
-      const spr = this.marbleSprites.get(result.emitted.id);
-      if (spr) {
-        this.tweens.add({
-          targets: spr.container,
-          x: spr.container.x + 60,
-          y: spr.container.y + 200,
-          alpha: 0,
-          angle: 90,
-          duration: 600,
-          ease: "Cubic.in",
-        });
-      }
-        // Routing failed — animate marble dropping away from the sorting exit.
-    }
+    // 4. Emitted marbles are now looped back to conveyor[0], so they're
+    //    animated by the normal conveyor shift loop above (no special exit animation).
 
     // 5. Status transitions
     if (result.statusChanged) {

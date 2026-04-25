@@ -386,7 +386,7 @@ export class GameScene extends Phaser.Scene {
     const { x, y } = this.tilePos(r, c);
     const container = this.add.container(x, y);
     const graphics = this.add.graphics();
-    drawTile(graphics, TILE_SIZE, tile);
+    drawTile(graphics, TILE_SIZE, tile, this.state.marblesPerBlock);
     container.add(graphics);
 
     let text: Phaser.GameObjects.Text | undefined;
@@ -425,19 +425,6 @@ export class GameScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       container.add(lockIcon);
-    } else {
-      // Show remaining-marble dots in the corner for normal/revealed/unlocked.
-      const dotsG = this.add.graphics();
-      const total = this.state.marblesPerBlock;
-      const dotR = 4;
-      const startX = -TILE_SIZE / 2 + 8;
-      const yPos = TILE_SIZE / 2 - 8;
-      for (let i = 0; i < total; i++) {
-        const filled = i < tile.marblesLeft;
-        dotsG.fillStyle(filled ? 0xffffff : 0x000000, filled ? 0.85 : 0.25);
-        dotsG.fillCircle(startX + i * (dotR * 2 + 2), yPos, dotR);
-      }
-      container.add(dotsG);
     }
 
     container.setSize(TILE_SIZE, TILE_SIZE);

@@ -39,7 +39,7 @@ export function PhaserGame() {
         default: "matter",
         matter: {
           gravity: { x: 0, y: 2 },
-          debug: true, // debugGraphic created; drawDebug toggled at runtime via D key
+          debug: false, // toggle at runtime via D key in GameScene
         },
       },
       input: {

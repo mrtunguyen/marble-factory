@@ -14,6 +14,7 @@ export function drawTile(
   g: Phaser.GameObjects.Graphics,
   size: number,
   tile: GridTile,
+  marblesPerBlock = 9,
 ): void {
   const r = TILE_RADIUS * (size / 56);
   const half = size / 2;
@@ -47,20 +48,44 @@ export function drawTile(
   g.fillRoundedRect(-half, -half, size, size, r);
 
   // Top highlight (lighter band)
-  g.fillStyle(colorLight, 0.6);
-  g.fillRoundedRect(-half + 3, -half + 3, size - 6, size * 0.32, r * 0.7);
+  g.fillStyle(colorLight, 0.5);
+  g.fillRoundedRect(-half + 3, -half + 3, size - 6, size * 0.28, r * 0.7);
 
-  // Dot pattern (3x3 grid of dots) — like bubble wrap
-  const dotR = size * 0.07;
-  const dotSpacing = size * 0.22;
-  for (let dr = -1; dr <= 1; dr++) {
-    for (let dc = -1; dc <= 1; dc++) {
-      const dx = dc * dotSpacing;
-      const dy = dr * dotSpacing;
-      g.fillStyle(colorDark, 0.5);
-      g.fillCircle(dx + 1, dy + 1, dotR);
-      g.fillStyle(colorLight, 0.85);
-      g.fillCircle(dx - 1, dy - 1, dotR * 0.6);
+  // 3×3 grid of 3D marbles showing marblesLeft out of marblesPerBlock
+  const cols = 3;
+  const rows = Math.ceil(marblesPerBlock / cols);
+  const mr = size * 0.13;          // marble radius
+  const spacing = size * 0.30;     // center-to-center spacing
+  const gridW = (cols - 1) * spacing;
+  const gridH = (rows - 1) * spacing;
+  const ox = -gridW / 2;
+  const oy = -gridH / 2 + size * 0.06; // slight downward offset from center
+
+  for (let i = 0; i < marblesPerBlock; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const cx = ox + col * spacing;
+    const cy = oy + row * spacing;
+    const filled = i < tile.marblesLeft;
+
+    if (filled) {
+      // 3D marble: shadow → body → dark hemisphere → two highlights
+      g.fillStyle(0x000000, 0.3);
+      g.fillCircle(cx + mr * 0.4, cy + mr * 0.5, mr * 0.85);
+      g.fillStyle(color, 1);
+      g.fillCircle(cx, cy, mr);
+      g.fillStyle(colorDark, 0.45);
+      g.fillCircle(cx + mr * 0.2, cy + mr * 0.2, mr * 0.6);
+      g.fillStyle(0xffffff, 0.55);
+      g.fillCircle(cx - mr * 0.3, cy - mr * 0.35, mr * 0.32);
+      g.fillStyle(0xffffff, 0.9);
+      g.fillCircle(cx - mr * 0.38, cy - mr * 0.4, mr * 0.14);
+    } else {
+      // Empty socket: dark inset circle
+      g.fillStyle(0x000000, 0.25);
+      g.fillCircle(cx, cy, mr);
+      g.fillStyle(colorDark, 0.3);
+      g.fillCircle(cx - mr * 0.2, cy - mr * 0.2, mr * 0.7);
     }
   }
 }
@@ -108,15 +133,6 @@ export function drawConveyorPipe(
   // Inner shadow at top
   g.fillStyle(0x000000, 0.12);
   g.fillRoundedRect(x + 6, y + 4, width - 12, height * 0.28, r * 0.5);
-  // Rivets along the casing
-  const rivetCount = Math.floor(width / 32);
-  const rivetSpacing = width / rivetCount;
-  for (let i = 0; i <= rivetCount; i++) {
-    const rx = x + i * rivetSpacing;
-    g.fillStyle(0xffffff, 0.55);
-    g.fillCircle(rx, y - 2, 2.5);
-    g.fillCircle(rx, y + height + 2, 2.5);
-  }
 }
 
 // Draw a vertical sorting tube (cap + body + bottom)

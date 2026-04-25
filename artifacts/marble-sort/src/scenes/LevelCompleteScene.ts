@@ -1,163 +1,159 @@
 import Phaser from "phaser";
+import {
+  GAME_WIDTH,
+  GAME_HEIGHT,
+  SCENE_GAME,
+  SCENE_MENU,
+  UI_BG_TOP,
+  UI_BG_BOTTOM,
+  BLOCK_COLORS,
+} from "../game/constants";
 import { LEVELS } from "../game/levels";
-import { SCENE_MENU, SCENE_GAME } from "../game/constants";
+import { drawMarble } from "../game/draw";
 
 export class LevelCompleteScene extends Phaser.Scene {
-  private levelIndex = 0;
-  private moves = 0;
-
   constructor() {
-    super({ key: "LevelCompleteScene" });
+    super("LevelCompleteScene");
   }
 
-  init(data: { levelIndex: number; moves: number }) {
-    this.levelIndex = data?.levelIndex ?? 0;
-    this.moves = data?.moves ?? 0;
-  }
+  create(data: { levelId: number }): void {
+    const id = data?.levelId ?? 1;
+    const idx = LEVELS.findIndex((l) => l.id === id);
+    const next = idx >= 0 && idx + 1 < LEVELS.length ? LEVELS[idx + 1] : null;
 
-  create() {
-    const { width, height } = this.scale;
-
-    // Background
+    // BG
     const bg = this.add.graphics();
-    bg.fillGradientStyle(0x1a1a2e, 0x1a1a2e, 0x16213e, 0x16213e, 1);
-    bg.fillRect(0, 0, width, height);
+    bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
+    bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Confetti particles
-    this.spawnConfetti(width, height);
-
-    // Panel
-    const panelW = 380;
-    const panelH = 280;
-    const panel = this.add.graphics();
-    panel.fillStyle(0x0f3460, 0.95);
-    panel.fillRoundedRect(width / 2 - panelW / 2, height / 2 - panelH / 2, panelW, panelH, 20);
-    panel.lineStyle(3, 0x4a90d9, 1);
-    panel.strokeRoundedRect(width / 2 - panelW / 2, height / 2 - panelH / 2, panelW, panelH, 20);
+    // Confetti marbles
+    const colors = Object.keys(BLOCK_COLORS) as (keyof typeof BLOCK_COLORS)[];
+    for (let i = 0; i < 24; i++) {
+      const g = this.add.graphics();
+      drawMarble(g, 18, colors[i % colors.length]);
+      g.x = Math.random() * GAME_WIDTH;
+      g.y = -20 - Math.random() * 200;
+      this.tweens.add({
+        targets: g,
+        y: GAME_HEIGHT + 40,
+        rotation: Math.random() * 6,
+        duration: 2200 + Math.random() * 1800,
+        repeat: -1,
+        delay: Math.random() * 1000,
+      });
+    }
 
     // Title
     this.add
-      .text(width / 2, height / 2 - 95, "Level Complete!", {
-        fontSize: "32px",
-        fontFamily: "Arial Black, Arial",
-        color: "#70b8ff",
-      })
-      .setOrigin(0.5);
-
-    const level = LEVELS[this.levelIndex];
-    this.add
-      .text(width / 2, height / 2 - 52, `${level.name}`, {
-        fontSize: "18px",
-        fontFamily: "Arial",
-        color: "#a8c6f0",
+      .text(GAME_WIDTH / 2, 200, "LEVEL COMPLETE!", {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "44px",
+        color: "#ffd84a",
+        stroke: "#7e3a00",
+        strokeThickness: 7,
       })
       .setOrigin(0.5);
 
     this.add
-      .text(width / 2, height / 2 - 15, `Solved in ${this.moves} moves`, {
-        fontSize: "22px",
-        fontFamily: "Arial",
-        color: "#f1c40f",
+      .text(GAME_WIDTH / 2, 250, `Level ${id} cleared`, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "20px",
+        color: "#ffffff",
+        stroke: "#5e2e91",
+        strokeThickness: 4,
       })
       .setOrigin(0.5);
 
-    // Stars based on move count
-    const stars = this.getMoves(level.id, this.moves);
-    const starStr = "★".repeat(stars) + "☆".repeat(3 - stars);
-    this.add
-      .text(width / 2, height / 2 + 25, starStr, {
-        fontSize: "36px",
-        color: "#f1c40f",
-      })
-      .setOrigin(0.5);
-
-    // Next level button
-    const hasNext = this.levelIndex + 1 < LEVELS.length;
-    if (hasNext) {
-      this.makeButton(width / 2 - 80, height / 2 + 95, "Next Level", () => {
-        this.scene.start(SCENE_GAME, { levelIndex: this.levelIndex + 1 });
-      }, 0x1a5490, 0x70b8ff);
-    }
-
-    this.makeButton(
-      hasNext ? width / 2 + 80 : width / 2,
-      height / 2 + 95,
-      "Menu",
-      () => this.scene.start(SCENE_MENU),
-      0x0f3460,
-      0x4a90d9
-    );
-  }
-
-  private getMoves(levelId: number, moves: number): number {
-    // Simple star rating: more stars for fewer moves
-    const par = levelId * 8 + 4;
-    if (moves <= par) return 3;
-    if (moves <= par * 1.5) return 2;
-    return 1;
-  }
-
-  private makeButton(
-    x: number,
-    y: number,
-    label: string,
-    cb: () => void,
-    fill: number,
-    border: number
-  ) {
-    const w = 140;
-    const h = 44;
-    const g = this.add.graphics();
-    g.fillStyle(fill, 1);
-    g.fillRoundedRect(-w / 2, -h / 2, w, h, 10);
-    g.lineStyle(2, border, 1);
-    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 10);
-    g.setPosition(x, y).setInteractive(
-      new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h),
-      Phaser.Geom.Rectangle.Contains
-    );
-
-    const txt = this.add
-      .text(x, y, label, {
-        fontSize: "16px",
-        fontFamily: "Arial",
-        color: "#e0e8ff",
-      })
-      .setOrigin(0.5);
-
-    g.on("pointerover", () => {
-      this.input.setDefaultCursor("pointer");
-      txt.setColor("#ffffff");
-    });
-    g.on("pointerout", () => {
-      this.input.setDefaultCursor("default");
-      txt.setColor("#e0e8ff");
-    });
-    g.on("pointerdown", cb);
-  }
-
-  private spawnConfetti(width: number, height: number) {
-    const colors = [0xe74c3c, 0x3498db, 0x27ae60, 0xf1c40f, 0x9b59b6, 0xe67e22];
-    for (let i = 0; i < 40; i++) {
-      const x = Phaser.Math.Between(0, width);
-      const y = Phaser.Math.Between(-50, height / 2);
-      const color = Phaser.Math.RND.pick(colors);
-      const g = this.add.graphics();
-      g.fillStyle(color, 1);
-      g.fillRect(-5, -5, 10, 10);
-      g.setPosition(x, y);
-      g.setAngle(Phaser.Math.Between(0, 360));
-
+    // Stars
+    for (let i = 0; i < 3; i++) {
+      const x = GAME_WIDTH / 2 - 80 + i * 80;
+      const y = 340;
+      const star = this.add.graphics();
+      star.fillStyle(0xffd84a, 1);
+      star.lineStyle(4, 0x7e3a00, 1);
+      this.drawStar(star, 0, 0, 5, 30, 14);
+      star.fillPath();
+      star.strokePath();
+      const c = this.add.container(x, y, [star]);
+      c.setScale(0);
       this.tweens.add({
-        targets: g,
-        y: height + 50,
-        x: x + Phaser.Math.Between(-80, 80),
-        angle: g.angle + Phaser.Math.Between(-360, 360),
-        alpha: 0,
-        duration: Phaser.Math.Between(1500, 3000),
-        ease: "Linear",
-        delay: Phaser.Math.Between(0, 800),
+        targets: c,
+        scale: 1,
+        duration: 360,
+        delay: 300 + i * 200,
+        ease: "Back.out",
       });
     }
+
+    // Buttons
+    if (next) {
+      this.makeButton(GAME_WIDTH / 2, 470, "NEXT LEVEL", 0x6dd35f, () => {
+        this.scene.start(SCENE_GAME, { levelId: next.id });
+      });
+    } else {
+      this.add
+        .text(GAME_WIDTH / 2, 470, "ALL LEVELS DONE!", {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "26px",
+          color: "#ffd84a",
+          stroke: "#7e3a00",
+          strokeThickness: 5,
+        })
+        .setOrigin(0.5);
+    }
+
+    this.makeButton(GAME_WIDTH / 2, 550, "REPLAY", 0x49b9ff, () => {
+      this.scene.start(SCENE_GAME, { levelId: id });
+    });
+    this.makeButton(GAME_WIDTH / 2, 630, "MENU", 0xb472ff, () => {
+      this.scene.start(SCENE_MENU);
+    });
+  }
+
+  private makeButton(x: number, y: number, label: string, color: number, cb: () => void): void {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.25);
+    g.fillRoundedRect(-130, -28, 260, 56, 16);
+    g.fillStyle(color, 1);
+    g.fillRoundedRect(-130, -32, 260, 56, 16);
+    g.lineStyle(4, 0xffffff, 0.8);
+    g.strokeRoundedRect(-130, -32, 260, 56, 16);
+    const t = this.add
+      .text(0, -4, label, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "22px",
+        color: "#ffffff",
+        stroke: "#000000",
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5);
+    c.add([g, t]);
+    c.setSize(260, 56);
+    c.setInteractive({ useHandCursor: true });
+    c.on("pointerdown", cb);
+    c.on("pointerover", () => c.setScale(1.05));
+    c.on("pointerout", () => c.setScale(1));
+  }
+
+  private drawStar(
+    g: Phaser.GameObjects.Graphics,
+    cx: number,
+    cy: number,
+    points: number,
+    outer: number,
+    inner: number
+  ): void {
+    g.beginPath();
+    const step = Math.PI / points;
+    let angle = -Math.PI / 2;
+    g.moveTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
+    for (let i = 0; i < points; i++) {
+      angle += step;
+      g.lineTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
+      angle += step;
+      g.lineTo(cx + Math.cos(angle) * outer, cy + Math.sin(angle) * outer);
+    }
+    g.closePath();
   }
 }

@@ -1,6 +1,6 @@
-// Core types for Marble Sort game
+// Block Match puzzle game types
 
-export type MarbleColor =
+export type BlockColor =
   | "red"
   | "blue"
   | "green"
@@ -10,39 +10,44 @@ export type MarbleColor =
   | "pink"
   | "cyan";
 
-export interface Marble {
-  color: MarbleColor;
+export type BlockKind = "normal" | "mystery" | "counter";
+
+export interface Block {
+  color: BlockColor; // for mystery: random color picked on tap
+  kind: BlockKind;
+  counter?: number; // for counter blocks: taps remaining
 }
 
-export interface Tube {
-  marbles: MarbleColor[]; // bottom to top order
-  capacity: number;
-  locked: boolean; // gameplay twist: locked tubes can't receive marbles for lockedTurns turns
-  lockedTurns: number; // how many moves remain until unlock
-}
+// A grid cell is either empty (null) or holds a block
+export type Cell = Block | null;
 
-export interface Level {
+export interface LevelDef {
   id: number;
   name: string;
-  tubes: TubeDef[];
-  tubeCapacity: number;
-}
-
-export interface TubeDef {
-  marbles: MarbleColor[]; // bottom to top
-  locked?: boolean;
-  lockedTurns?: number;
-}
-
-export interface Move {
-  fromIndex: number;
-  toIndex: number;
+  cols: number;
+  rows: number;
+  trayCapacity: number;
+  // Compact grid string, row by row, top to bottom
+  // Each cell is 2 chars: color + kind
+  // Color: r=red, b=blue, g=green, y=yellow, p=purple, o=orange, k=pink, c=cyan
+  // Kind: n=normal, m=mystery (color ignored, set to '?'), 3=counter3, 2=counter2
+  // ".." = empty cell
+  grid: string[];
 }
 
 export interface GameState {
-  tubes: Tube[];
-  moveCount: number;
-  history: Tube[][];
-  selectedTubeIndex: number | null;
-  levelComplete: boolean;
+  cols: number;
+  rows: number;
+  cells: Cell[][];
+  tray: Block[];
+  trayCapacity: number;
+  collected: Record<BlockColor, number>;
+  history: GameStateSnapshot[];
+  status: "playing" | "won" | "lost";
+}
+
+export interface GameStateSnapshot {
+  cells: Cell[][];
+  tray: Block[];
+  collected: Record<BlockColor, number>;
 }

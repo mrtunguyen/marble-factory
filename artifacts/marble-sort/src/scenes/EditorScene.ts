@@ -1,332 +1,410 @@
 import Phaser from "phaser";
 import {
-  ALL_COLORS,
-  MARBLE_COLORS,
-  TUBE_WIDTH,
-  TUBE_SPACING,
-  MARBLE_SPACING,
-  MARBLE_RADIUS,
+  GAME_WIDTH,
+  GAME_HEIGHT,
+  BLOCK_SIZE,
+  BLOCK_GAP,
   SCENE_MENU,
+  SCENE_GAME,
+  UI_BG_TOP,
+  UI_BG_BOTTOM,
+  UI_GRID_BG,
+  BLOCK_COLORS,
+  ALL_COLORS,
 } from "../game/constants";
-import type { MarbleColor, TubeDef, Level } from "../game/types";
+import { drawBlock } from "../game/draw";
+import type { BlockColor, BlockKind, Cell, LevelDef } from "../game/types";
+import { LEVELS } from "../game/levels";
+import { buildGameState, isLost } from "../game/logic";
 
-interface EditorTube {
-  marbles: MarbleColor[];
-  locked: boolean;
-  lockedTurns: number;
-}
+const COLOR_TO_CHAR: Record<BlockColor, string> = {
+  red: "r", blue: "b", green: "g", yellow: "y",
+  purple: "p", orange: "o", pink: "k", cyan: "c",
+};
+
+const KIND_TO_CHAR: Record<BlockKind, string> = {
+  normal: "n",
+  mystery: "m",
+  counter: "3",
+};
 
 export class EditorScene extends Phaser.Scene {
-  private tubes: EditorTube[] = [];
-  private capacity = 4;
-  private selectedColor: MarbleColor = "red";
-  private selectedTube = -1;
-
-  private tubeGraphics: Phaser.GameObjects.Graphics[] = [];
-  private paletteGraphics: Phaser.GameObjects.Graphics[] = [];
-  private colorLabel!: Phaser.GameObjects.Text;
+  private cols = 4;
+  private rows = 4;
+  private cells: Cell[][] = [];
+  private spriteRefs: (Phaser.GameObjects.Container | null)[][] = [];
+  private currentColor: BlockColor = "red";
+  private currentKind: BlockKind = "normal";
+  private gridOffsetX = 0;
+  private gridOffsetY = 0;
   private statusText!: Phaser.GameObjects.Text;
-  private exportText: Phaser.GameObjects.Text | null = null;
+  private exportText!: Phaser.GameObjects.Text;
 
   constructor() {
-    super({ key: "EditorScene" });
+    super("EditorScene");
   }
 
-  create() {
-    const { width, height } = this.scale;
-
-    // Default tubes
-    this.tubes = [
-      { marbles: [], locked: false, lockedTurns: 0 },
-      { marbles: [], locked: false, lockedTurns: 0 },
-      { marbles: [], locked: false, lockedTurns: 0 },
-    ];
-
-    // Background
+  create(): void {
     const bg = this.add.graphics();
-    bg.fillGradientStyle(0x1a1a2e, 0x1a1a2e, 0x16213e, 0x16213e, 1);
-    bg.fillRect(0, 0, width, height);
+    bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
+    bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Title
+    // Top bar
+    const barG = this.add.graphics();
+    barG.fillStyle(0x4a328a, 0.4);
+    barG.fillRect(0, 0, GAME_WIDTH, 60);
+    this.makeIconButton(36, 30, "<", () => this.scene.start(SCENE_MENU));
     this.add
-      .text(width / 2, 26, "LEVEL EDITOR", {
-        fontSize: "24px",
-        fontFamily: "Arial Black, Arial",
-        color: "#e0e8ff",
+      .text(GAME_WIDTH / 2, 30, "LEVEL EDITOR", {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "22px",
+        color: "#ffffff",
+        stroke: "#5e2e91",
+        strokeThickness: 4,
       })
       .setOrigin(0.5);
 
-    this.statusText = this.add
-      .text(width / 2, 54, "Select a color, then click a tube to add/remove marbles", {
-        fontSize: "13px",
-        fontFamily: "Arial",
-        color: "#7898b8",
-      })
-      .setOrigin(0.5);
+    // Init cells
+    this.initCells();
+    this.drawGridPanel();
+    this.buildSprites();
 
     // Color palette
-    this.buildPalette(width);
-
-    // Tubes
-    this.renderTubes(width, height);
-
-    // Controls
-    this.buildControls(width, height);
-
-    // Back to menu
-    this.makeButton(60, 28, "← Back", 90, 30, () => {
-      this.scene.start(SCENE_MENU);
-    });
-  }
-
-  private buildPalette(width: number) {
-    const y = 96;
-    const startX = width / 2 - (ALL_COLORS.length * 40) / 2 + 16;
-
+    this.add
+      .text(20, 460, "Color:", {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "16px",
+        color: "#ffffff",
+        stroke: "#5e2e91",
+        strokeThickness: 2,
+      });
     ALL_COLORS.forEach((color, i) => {
-      const x = startX + i * 40;
+      const x = 90 + i * 48;
+      const y = 470;
+      const c = this.add.container(x, y);
       const g = this.add.graphics();
-      this.drawPaletteCircle(g, x, y, color, color === this.selectedColor);
-      g.setInteractive(
-        new Phaser.Geom.Circle(x, y, 18),
-        Phaser.Geom.Circle.Contains
-      );
-      g.on("pointerdown", () => {
-        this.selectedColor = color;
-        this.refreshPalette(width);
-        this.statusText.setText(`Selected: ${color}`);
+      g.fillStyle(BLOCK_COLORS[color], 1);
+      g.fillRoundedRect(-18, -18, 36, 36, 8);
+      g.lineStyle(3, 0xffffff, 0.7);
+      g.strokeRoundedRect(-18, -18, 36, 36, 8);
+      c.add(g);
+      c.setSize(36, 36);
+      c.setInteractive({ useHandCursor: true });
+      c.on("pointerdown", () => {
+        this.currentColor = color;
+        this.currentKind = "normal";
+        this.flashStatus(`Color: ${color}`);
       });
-      g.on("pointerover", () => { this.input.setDefaultCursor("pointer"); });
-      g.on("pointerout", () => { this.input.setDefaultCursor("default"); });
-      this.paletteGraphics.push(g);
+      c.on("pointerover", () => c.setScale(1.1));
+      c.on("pointerout", () => c.setScale(1));
     });
-  }
 
-  private drawPaletteCircle(
-    g: Phaser.GameObjects.Graphics,
-    x: number,
-    y: number,
-    color: MarbleColor,
-    selected: boolean
-  ) {
-    g.clear();
-    if (selected) {
-      g.lineStyle(3, 0xffffff, 1);
-      g.strokeCircle(x, y, 20);
-    }
-    g.fillStyle(MARBLE_COLORS[color], 1);
-    g.fillCircle(x, y, 16);
-    g.fillStyle(0xffffff, 0.25);
-    g.fillCircle(x - 5, y - 5, 5);
-  }
-
-  private refreshPalette(width: number) {
-    const startX = width / 2 - (ALL_COLORS.length * 40) / 2 + 16;
-    ALL_COLORS.forEach((color, i) => {
-      const x = startX + i * 40;
-      const g = this.paletteGraphics[i];
-      this.drawPaletteCircle(g, x, 96, color, color === this.selectedColor);
-    });
-  }
-
-  private renderTubes(width: number, height: number) {
-    this.tubeGraphics.forEach((g) => g.destroy());
-    this.tubeGraphics = [];
-
-    const n = this.tubes.length;
-    const totalW = (n - 1) * TUBE_SPACING;
-    const startX = width / 2 - totalW / 2;
-    const tubeH = this.capacity * MARBLE_SPACING + 20;
-    const tubeY = height * 0.5;
-
-    this.tubes.forEach((tube, i) => {
-      const x = startX + i * TUBE_SPACING;
-      const tubeTop = tubeY - tubeH / 2;
-
+    // Kind buttons
+    this.add
+      .text(20, 510, "Kind:", {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "16px",
+        color: "#ffffff",
+        stroke: "#5e2e91",
+        strokeThickness: 2,
+      });
+    const kinds: { kind: BlockKind; label: string }[] = [
+      { kind: "normal", label: "■" },
+      { kind: "mystery", label: "?" },
+      { kind: "counter", label: "3" },
+    ];
+    kinds.forEach((k, i) => {
+      const x = 90 + i * 48;
+      const y = 520;
+      const c = this.add.container(x, y);
       const g = this.add.graphics();
-
-      // Tube body
-      g.fillStyle(tube.locked ? 0x3d1060 : 0x0f3460, 1);
-      g.fillRoundedRect(x - TUBE_WIDTH / 2, tubeTop, TUBE_WIDTH, tubeH, 12);
-      g.lineStyle(2, tube.locked ? 0x9b59b6 : 0x4a90d9, 0.9);
-      g.strokeRoundedRect(x - TUBE_WIDTH / 2, tubeTop, TUBE_WIDTH, tubeH, 12);
-
-      // Marbles
-      tube.marbles.forEach((color, mi) => {
-        const mx = x;
-        const my = tubeY + tubeH / 2 - 10 - MARBLE_SPACING * mi - MARBLE_RADIUS;
-        g.fillStyle(MARBLE_COLORS[color], 1);
-        g.fillCircle(mx, my, MARBLE_RADIUS);
-        g.fillStyle(0xffffff, 0.25);
-        g.fillCircle(mx - 8, my - 8, 9);
-      });
-
-      // Lock label
-      if (tube.locked) {
-        this.add.text(x, tubeTop - 20, `🔒${tube.lockedTurns}`, {
-          fontSize: "14px",
-          color: "#c39bd3",
-        }).setOrigin(0.5).setDepth(10);
-      }
-
-      // Tube label
-      this.add.text(x, tubeY + tubeH / 2 + 14, `T${i + 1}`, {
-        fontSize: "12px",
-        color: "#5a7898",
-      }).setOrigin(0.5);
-
-      // Click to add/remove marbles (left/right click)
-      g.setInteractive(
-        new Phaser.Geom.Rectangle(x - TUBE_WIDTH / 2, tubeTop, TUBE_WIDTH, tubeH),
-        Phaser.Geom.Rectangle.Contains
-      );
-
-      g.on("pointerdown", (ptr: Phaser.Input.Pointer) => {
-        if (ptr.rightButtonDown()) {
-          // Right click = remove top marble
-          tube.marbles.pop();
-        } else {
-          // Left click = add selected marble if room
-          if (tube.marbles.length < this.capacity) {
-            tube.marbles.push(this.selectedColor);
-          }
-        }
-        this.renderTubes(width, height);
-      });
-
-      g.on("pointerover", () => { this.input.setDefaultCursor("pointer"); });
-      g.on("pointerout", () => { this.input.setDefaultCursor("default"); });
-
-      this.tubeGraphics.push(g);
-    });
-  }
-
-  private buildControls(width: number, height: number) {
-    const tubeH = this.capacity * MARBLE_SPACING + 20;
-    const tubeY = height * 0.5;
-    const bottomY = tubeY + tubeH / 2 + 50;
-
-    // Add tube
-    this.makeButton(width / 2 - 165, bottomY, "+ Tube", 100, 34, () => {
-      if (this.tubes.length < 8) {
-        this.tubes.push({ marbles: [], locked: false, lockedTurns: 0 });
-        this.renderTubes(width, height);
-      }
-    });
-
-    // Remove tube
-    this.makeButton(width / 2 - 55, bottomY, "- Tube", 100, 34, () => {
-      if (this.tubes.length > 2) {
-        this.tubes.pop();
-        this.renderTubes(width, height);
-      }
-    });
-
-    // Toggle lock on last tube
-    this.makeButton(width / 2 + 55, bottomY, "Lock Last", 100, 34, () => {
-      const last = this.tubes[this.tubes.length - 1];
-      last.locked = !last.locked;
-      last.lockedTurns = last.locked ? 3 : 0;
-      this.renderTubes(width, height);
-    });
-
-    // Clear
-    this.makeButton(width / 2 + 165, bottomY, "Clear All", 100, 34, () => {
-      this.tubes.forEach((t) => (t.marbles = []));
-      this.renderTubes(width, height);
-    });
-
-    // Export JSON
-    this.makeButton(width / 2 - 65, bottomY + 52, "Export JSON", 130, 36, () => {
-      const level: Level = {
-        id: 99,
-        name: "Custom Level",
-        tubeCapacity: this.capacity,
-        tubes: this.tubes.map((t): TubeDef => ({
-          marbles: [...t.marbles],
-          locked: t.locked,
-          lockedTurns: t.lockedTurns,
-        })),
-      };
-      const json = JSON.stringify(level, null, 2);
-      if (this.exportText) this.exportText.destroy();
-      this.exportText = this.add
-        .text(width / 2, bottomY + 120, json, {
-          fontSize: "11px",
-          fontFamily: "Monospace, Courier",
-          color: "#a8f0c8",
-          backgroundColor: "#0a1e10",
-          padding: { x: 10, y: 8 },
-          wordWrap: { width: width - 40 },
+      g.fillStyle(0xffffff, 0.85);
+      g.fillRoundedRect(-18, -18, 36, 36, 8);
+      g.lineStyle(2, 0x5e2e91, 1);
+      g.strokeRoundedRect(-18, -18, 36, 36, 8);
+      c.add(g);
+      const t = this.add
+        .text(0, 0, k.label, {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "20px",
+          color: "#5e2e91",
         })
         .setOrigin(0.5);
-
-      // Copy to clipboard
-      try {
-        navigator.clipboard.writeText(json);
-        this.statusText.setText("JSON copied to clipboard!");
-      } catch {
-        this.statusText.setText("JSON shown below (copy manually)");
-      }
+      c.add(t);
+      c.setSize(36, 36);
+      c.setInteractive({ useHandCursor: true });
+      c.on("pointerdown", () => {
+        this.currentKind = k.kind;
+        this.flashStatus(`Kind: ${k.kind}`);
+      });
+      c.on("pointerover", () => c.setScale(1.1));
+      c.on("pointerout", () => c.setScale(1));
     });
 
-    // Import JSON
-    this.makeButton(width / 2 + 75, bottomY + 52, "Import JSON", 130, 36, () => {
-      const json = prompt("Paste level JSON:");
-      if (!json) return;
-      try {
-        const data = JSON.parse(json) as Level;
-        if (data.tubes && data.tubeCapacity) {
-          this.tubes = data.tubes.map((t) => ({
-            marbles: [...t.marbles],
-            locked: t.locked ?? false,
-            lockedTurns: t.lockedTurns ?? 0,
-          }));
-          this.capacity = data.tubeCapacity;
-          this.renderTubes(width, height);
-          this.statusText.setText("Level imported!");
-        }
-      } catch {
-        this.statusText.setText("Invalid JSON!");
-      }
+    // Action buttons
+    this.makeButton(GAME_WIDTH / 2 - 130, 580, "CLEAR", 0xff5b6e, () => {
+      this.initCells();
+      this.rebuildSprites();
+    });
+    this.makeButton(GAME_WIDTH / 2 + 130, 580, "TEST", 0x6dd35f, () => {
+      this.testLevel();
+    });
+    this.makeButton(GAME_WIDTH / 2, 640, "COPY JSON", 0x49b9ff, () => {
+      this.exportLevel();
     });
 
-    // Instructions
-    this.add
-      .text(width / 2, bottomY + 170, "Left-click tube = add marble | Right-click = remove marble | Lock Last = toggle lock on last tube", {
-        fontSize: "12px",
-        fontFamily: "Arial",
-        color: "#5a7898",
-        align: "center",
-        wordWrap: { width: width - 40 },
+    // Status / instructions
+    this.statusText = this.add
+      .text(GAME_WIDTH / 2, 700, "Left click = place • Right click = erase", {
+        fontFamily: "Arial, sans-serif",
+        fontSize: "13px",
+        color: "#e8def8",
       })
       .setOrigin(0.5);
+
+    this.exportText = this.add
+      .text(GAME_WIDTH / 2, 730, "", {
+        fontFamily: "monospace",
+        fontSize: "10px",
+        color: "#ffffff",
+        wordWrap: { width: GAME_WIDTH - 40 },
+      })
+      .setOrigin(0.5, 0);
+
+    // Disable browser context menu on right click
+    this.input.mouse?.disableContextMenu();
   }
 
-  private makeButton(
-    x: number,
-    y: number,
-    label: string,
-    w: number,
-    h: number,
-    cb: () => void
-  ) {
+  private initCells(): void {
+    this.cells = [];
+    for (let r = 0; r < this.rows; r++) {
+      const row: Cell[] = [];
+      for (let c = 0; c < this.cols; c++) row.push(null);
+      this.cells.push(row);
+    }
+  }
+
+  private drawGridPanel(): void {
+    const panelW = this.cols * BLOCK_SIZE + (this.cols - 1) * BLOCK_GAP + 36;
+    const panelH = this.rows * BLOCK_SIZE + (this.rows - 1) * BLOCK_GAP + 36;
+    const panelX = (GAME_WIDTH - panelW) / 2;
+    const panelY = 100;
     const g = this.add.graphics();
-    g.fillStyle(0x0f3460, 1);
-    g.fillRoundedRect(-w / 2, -h / 2, w, h, 8);
-    g.lineStyle(1.5, 0x4a90d9, 1);
-    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 8);
-    g.setPosition(x, y).setInteractive(
-      new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h),
-      Phaser.Geom.Rectangle.Contains
-    );
+    g.fillStyle(0x4a328a, 0.5);
+    g.fillRoundedRect(panelX - 6, panelY - 6, panelW + 12, panelH + 12, 28);
+    g.fillStyle(UI_GRID_BG, 1);
+    g.fillRoundedRect(panelX, panelY, panelW, panelH, 22);
 
-    const txt = this.add
-      .text(x, y, label, { fontSize: "13px", fontFamily: "Arial", color: "#e0e8ff" })
+    this.gridOffsetX = panelX + 18 + BLOCK_SIZE / 2;
+    this.gridOffsetY = panelY + 18 + BLOCK_SIZE / 2;
+  }
+
+  private cellPos(r: number, c: number): { x: number; y: number } {
+    return {
+      x: this.gridOffsetX + c * (BLOCK_SIZE + BLOCK_GAP),
+      y: this.gridOffsetY + r * (BLOCK_SIZE + BLOCK_GAP),
+    };
+  }
+
+  private buildSprites(): void {
+    this.spriteRefs = [];
+    for (let r = 0; r < this.rows; r++) {
+      const row: (Phaser.GameObjects.Container | null)[] = [];
+      for (let c = 0; c < this.cols; c++) {
+        row.push(this.makeCellInteract(r, c));
+      }
+      this.spriteRefs.push(row);
+    }
+  }
+
+  private makeCellInteract(r: number, c: number): Phaser.GameObjects.Container {
+    const { x, y } = this.cellPos(r, c);
+    const container = this.add.container(x, y);
+
+    // Empty cell hint (subtle outline)
+    const hint = this.add.graphics();
+    hint.fillStyle(0xffffff, 0.08);
+    hint.fillRoundedRect(-BLOCK_SIZE / 2, -BLOCK_SIZE / 2, BLOCK_SIZE, BLOCK_SIZE, 12);
+    container.add(hint);
+
+    const cell = this.cells[r][c];
+    if (cell) {
+      const g = this.add.graphics();
+      drawBlock(g, BLOCK_SIZE, cell);
+      container.add(g);
+      if (cell.kind === "mystery") {
+        const t = this.add
+          .text(0, 0, "?", {
+            fontFamily: "Arial Black, sans-serif",
+            fontSize: "32px",
+            color: "#ffffff",
+            stroke: "#444444",
+            strokeThickness: 5,
+          })
+          .setOrigin(0.5);
+        container.add(t);
+      } else if (cell.kind === "counter" && cell.counter) {
+        const badge = this.add.graphics();
+        badge.fillStyle(0x1a1a2e, 0.75);
+        badge.fillRoundedRect(-BLOCK_SIZE / 2 + 4, -10, BLOCK_SIZE - 8, 20, 6);
+        container.add(badge);
+        const t = this.add
+          .text(0, 0, `${cell.counter}`, {
+            fontFamily: "Arial Black, sans-serif",
+            fontSize: "20px",
+            color: "#ffffff",
+          })
+          .setOrigin(0.5);
+        container.add(t);
+      }
+    }
+
+    container.setSize(BLOCK_SIZE, BLOCK_SIZE);
+    container.setInteractive({ useHandCursor: true });
+    container.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+      if (pointer.rightButtonDown()) {
+        this.cells[r][c] = null;
+      } else {
+        if (this.currentKind === "counter") {
+          this.cells[r][c] = { color: this.currentColor, kind: "counter", counter: 3 };
+        } else if (this.currentKind === "mystery") {
+          this.cells[r][c] = { color: this.currentColor, kind: "mystery" };
+        } else {
+          this.cells[r][c] = { color: this.currentColor, kind: "normal" };
+        }
+      }
+      this.rebuildCell(r, c);
+    });
+    return container;
+  }
+
+  private rebuildCell(r: number, c: number): void {
+    const old = this.spriteRefs[r][c];
+    if (old) old.destroy();
+    this.spriteRefs[r][c] = this.makeCellInteract(r, c);
+  }
+
+  private rebuildSprites(): void {
+    for (const row of this.spriteRefs) {
+      for (const s of row) if (s) s.destroy();
+    }
+    this.buildSprites();
+  }
+
+  private serializeCells(): string[] {
+    const out: string[] = [];
+    for (let r = 0; r < this.rows; r++) {
+      let row = "";
+      for (let c = 0; c < this.cols; c++) {
+        const cell = this.cells[r][c];
+        if (!cell) {
+          row += "..";
+        } else if (cell.kind === "mystery") {
+          row += "?m";
+        } else if (cell.kind === "counter") {
+          const k = cell.counter === 2 ? "2" : "3";
+          row += COLOR_TO_CHAR[cell.color] + k;
+        } else {
+          row += COLOR_TO_CHAR[cell.color] + "n";
+        }
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  private exportLevel(): void {
+    const def: LevelDef = {
+      id: 99,
+      name: "Custom",
+      cols: this.cols,
+      rows: this.rows,
+      trayCapacity: 7,
+      grid: this.serializeCells(),
+    };
+    const json = JSON.stringify(def, null, 2);
+    // Try clipboard
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(json).then(
+        () => this.flashStatus("Copied JSON to clipboard!"),
+        () => this.exportText.setText(json)
+      );
+    } else {
+      this.exportText.setText(json);
+    }
+    this.exportText.setText(json);
+  }
+
+  private testLevel(): void {
+    const def: LevelDef = {
+      id: 99,
+      name: "Custom",
+      cols: this.cols,
+      rows: this.rows,
+      trayCapacity: 7,
+      grid: this.serializeCells(),
+    };
+    // Inject as last level temporarily and start
+    const i = LEVELS.findIndex((l) => l.id === 99);
+    if (i >= 0) LEVELS.splice(i, 1);
+    LEVELS.push(def);
+    this.scene.start(SCENE_GAME, { levelId: 99 });
+  }
+
+  private flashStatus(msg: string): void {
+    this.statusText.setText(msg);
+    this.statusText.setAlpha(1);
+    this.tweens.add({
+      targets: this.statusText,
+      alpha: 0.6,
+      duration: 1500,
+      delay: 600,
+    });
+  }
+
+  private makeIconButton(x: number, y: number, label: string, cb: () => void): void {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    g.fillStyle(0xffffff, 0.85);
+    g.fillRoundedRect(-20, -20, 40, 40, 10);
+    g.lineStyle(2, 0x5e2e91, 1);
+    g.strokeRoundedRect(-20, -20, 40, 40, 10);
+    const t = this.add
+      .text(0, 0, label, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "22px",
+        color: "#5e2e91",
+      })
       .setOrigin(0.5);
+    c.add([g, t]);
+    c.setSize(40, 40);
+    c.setInteractive({ useHandCursor: true });
+    c.on("pointerdown", cb);
+    c.on("pointerover", () => c.setScale(1.1));
+    c.on("pointerout", () => c.setScale(1));
+  }
 
-    g.on("pointerover", () => { this.input.setDefaultCursor("pointer"); txt.setColor("#ffffff"); });
-    g.on("pointerout", () => { this.input.setDefaultCursor("default"); txt.setColor("#e0e8ff"); });
-    g.on("pointerdown", cb);
+  private makeButton(x: number, y: number, label: string, color: number, cb: () => void): void {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    g.fillStyle(color, 1);
+    g.fillRoundedRect(-90, -22, 180, 44, 12);
+    g.lineStyle(3, 0xffffff, 0.7);
+    g.strokeRoundedRect(-90, -22, 180, 44, 12);
+    const t = this.add
+      .text(0, 0, label, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "16px",
+        color: "#ffffff",
+        stroke: "#000000",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5);
+    c.add([g, t]);
+    c.setSize(180, 44);
+    c.setInteractive({ useHandCursor: true });
+    c.on("pointerdown", cb);
+    c.on("pointerover", () => c.setScale(1.05));
+    c.on("pointerout", () => c.setScale(1));
   }
 }

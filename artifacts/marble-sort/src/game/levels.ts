@@ -1,76 +1,79 @@
-// Level definitions for Marble Sort
-import type { Level } from "./types";
+// Level definitions for Block Match
+import type { LevelDef } from "./types";
 
-export const LEVELS: Level[] = [
+// Compact format: each cell is 2 chars
+// Colors: r b g y p o k(pink) c(cyan)
+// Kinds:  n(normal) m(mystery, color char ignored) 3(counter3) 2(counter2)
+// Empty:  ".."
+//
+// Counter blocks count as ONE block of that color toward totals.
+// To win, each color count should be divisible by MATCH_COUNT (3).
+
+export const LEVELS: LevelDef[] = [
+  // Level 1: 3x3 — 3 colors × 3 each. Pure intro.
   {
     id: 1,
     name: "Warm Up",
-    tubeCapacity: 4,
-    tubes: [
-      { marbles: ["red", "blue", "red", "blue"] },
-      { marbles: ["blue", "red", "blue", "red"] },
-      { marbles: [] },
+    cols: 3,
+    rows: 3,
+    trayCapacity: 7,
+    grid: [
+      "rnbngn",
+      "bngnrn",
+      "gnrnbn",
     ],
   },
+  // Level 2: 4x3 — 4 colors × 3 each.
   {
     id: 2,
-    name: "Three Colors",
-    tubeCapacity: 4,
-    tubes: [
-      { marbles: ["red", "green", "blue", "red"] },
-      { marbles: ["blue", "red", "green", "blue"] },
-      { marbles: ["green", "blue", "red", "green"] },
-      { marbles: [] },
-      { marbles: [] },
+    name: "Color Mix",
+    cols: 4,
+    rows: 3,
+    trayCapacity: 7,
+    grid: [
+      "rnbngnyn",
+      "ynrnbngn",
+      "gnynrnbn",
     ],
   },
+  // Level 3: 4x3 with counter blocks — counters take 3 taps to release.
   {
     id: 3,
-    name: "Locked Chamber",
-    tubeCapacity: 4,
-    tubes: [
-      { marbles: ["red", "blue", "red", "blue"] },
-      { marbles: ["blue", "red", "blue", "red"] },
-      { marbles: [], locked: true, lockedTurns: 2 }, // locked for 2 moves
-      { marbles: [] },
+    name: "Locked In",
+    cols: 4,
+    rows: 3,
+    trayCapacity: 7,
+    grid: [
+      "rnbngnyn",
+      "ynr3bngn",
+      "gnynbnr2",
     ],
   },
+  // Level 4: Mystery drop. 3 colors × 3 normal + 3 mystery = 12 cells.
+  // Mystery blocks resolve to a random color from remaining grid pool.
   {
     id: 4,
-    name: "Four Colors",
-    tubeCapacity: 4,
-    tubes: [
-      { marbles: ["red", "yellow", "green", "blue"] },
-      { marbles: ["green", "red", "blue", "yellow"] },
-      { marbles: ["blue", "green", "yellow", "red"] },
-      { marbles: ["yellow", "blue", "red", "green"] },
-      { marbles: [] },
-      { marbles: [] },
+    name: "Mystery Drop",
+    cols: 4,
+    rows: 3,
+    trayCapacity: 7,
+    grid: [
+      "rnbngn?m",
+      "bngnrn?m",
+      "gnrnbn?m",
     ],
   },
+  // Level 5: Final blast. 6x3 — 6 colors × 3 each, with counter blocks.
   {
     id: 5,
-    name: "Double Lock",
-    tubeCapacity: 4,
-    tubes: [
-      { marbles: ["red", "purple", "red", "purple"] },
-      { marbles: ["purple", "red", "purple", "red"] },
-      { marbles: ["orange", "cyan", "orange", "cyan"] },
-      { marbles: ["cyan", "orange", "cyan", "orange"] },
-      { marbles: [], locked: true, lockedTurns: 3 },
-      { marbles: [], locked: true, lockedTurns: 3 },
-      { marbles: [] },
+    name: "Final Blast",
+    cols: 6,
+    rows: 3,
+    trayCapacity: 8,
+    grid: [
+      "rnbngnynpnon",
+      "onrnb3gnynpn",
+      "pnonrnbngny3",
     ],
   },
 ];
-
-// Load a level from JSON (for level editor export)
-export function loadLevelFromJSON(json: string): Level | null {
-  try {
-    const data = JSON.parse(json) as Level;
-    if (!data.tubes || !data.tubeCapacity) return null;
-    return data;
-  } catch {
-    return null;
-  }
-}

@@ -1,368 +1,609 @@
 import Phaser from "phaser";
+import {
+  GAME_WIDTH,
+  GAME_HEIGHT,
+  BLOCK_SIZE,
+  BLOCK_GAP,
+  TRAY_SLOT_SIZE,
+  TRAY_GAP,
+  TRAY_HEIGHT,
+  SCENE_MENU,
+  SCENE_COMPLETE,
+  SCENE_GAMEOVER,
+  TRAY_ANIM_MS,
+  MATCH_ANIM_MS,
+  UI_BG_TOP,
+  UI_BG_BOTTOM,
+  UI_GRID_BG,
+  UI_TRAY_BG,
+  UI_TRAY_BORDER,
+  UI_TEXT_DARK,
+  UI_TEXT_LIGHT,
+  UI_ACCENT,
+  BLOCK_COLORS,
+  ALL_COLORS,
+} from "../game/constants";
 import { LEVELS } from "../game/levels";
 import {
   buildGameState,
-  canMove,
-  applyMove,
-  isLevelComplete,
-  cloneTubes,
-  topMarble,
+  tapCell,
+  findMatch,
+  clearMatch,
+  isGridEmpty,
+  isLost,
+  snapshot,
+  restoreSnapshot,
 } from "../game/logic";
-import {
-  MARBLE_RADIUS,
-  TUBE_WIDTH,
-  TUBE_SPACING,
-  MARBLE_SPACING,
-  ANIMATION_DURATION,
-  MARBLE_COLORS,
-  SCENE_MENU,
-  SCENE_COMPLETE,
-} from "../game/constants";
-import type { GameState, Tube, MarbleColor } from "../game/types";
+import type { Block, BlockColor, GameState, LevelDef } from "../game/types";
+import { drawBlock, drawMarble, drawTrayPipe } from "../game/draw";
+
+interface CellSprite {
+  container: Phaser.GameObjects.Container;
+  graphics: Phaser.GameObjects.Graphics;
+  text?: Phaser.GameObjects.Text;
+  badge?: Phaser.GameObjects.Graphics;
+}
+
+interface TraySprite {
+  container: Phaser.GameObjects.Container;
+  graphics: Phaser.GameObjects.Graphics;
+  block: Block;
+}
 
 export class GameScene extends Phaser.Scene {
   private state!: GameState;
-  private levelIndex = 0;
-  private tubeGraphics: Phaser.GameObjects.Graphics[] = [];
-  private marbleGraphics: Phaser.GameObjects.Graphics[][] = [];
-  private lockTexts: Phaser.GameObjects.Text[] = [];
-  private moveText!: Phaser.GameObjects.Text;
-  private levelText!: Phaser.GameObjects.Text;
-  private animating = false;
+  private level!: LevelDef;
+  private cellSprites: (CellSprite | null)[][] = [];
+  private traySprites: TraySprite[] = [];
+  private collectedTexts: Map<BlockColor, Phaser.GameObjects.Text> = new Map();
+  private collectedColumns: Map<BlockColor, Phaser.GameObjects.Container> =
+    new Map();
+  private isAnimating = false;
+  private gridOffsetX = 0;
+  private gridOffsetY = 0;
+  private trayY = 0;
+  private trayCenterX = 0;
+  private trayInnerWidth = 0;
+  private statusText!: Phaser.GameObjects.Text;
 
   constructor() {
-    super({ key: "GameScene" });
+    super("GameScene");
   }
 
-  init(data: { levelIndex: number }) {
-    this.levelIndex = data?.levelIndex ?? 0;
+  init(data: { levelId: number }): void {
+    const id = data?.levelId ?? 1;
+    const found = LEVELS.find((l) => l.id === id) ?? LEVELS[0];
+    this.level = found;
+    this.state = buildGameState(found);
+    this.cellSprites = [];
+    this.traySprites = [];
+    this.collectedTexts = new Map();
+    this.collectedColumns = new Map();
+    this.isAnimating = false;
   }
 
-  create() {
-    const { width, height } = this.scale;
-
+  create(): void {
     // Background
     const bg = this.add.graphics();
-    bg.fillGradientStyle(0x1a1a2e, 0x1a1a2e, 0x16213e, 0x16213e, 1);
-    bg.fillRect(0, 0, width, height);
-
-    const level = LEVELS[this.levelIndex];
-    this.state = buildGameState(level);
-
-    this.buildUI();
-    this.renderAll();
-  }
-
-  private buildUI() {
-    const { width } = this.scale;
-    const level = LEVELS[this.levelIndex];
+    bg.fillGradientStyle(UI_BG_TOP, UI_BG_TOP, UI_BG_BOTTOM, UI_BG_BOTTOM, 1);
+    bg.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     // Top bar
-    this.levelText = this.add
-      .text(width / 2, 28, `Level ${level.id}: ${level.name}`, {
-        fontSize: "22px",
-        fontFamily: "Arial Black, Arial",
-        color: "#e0e8ff",
-      })
-      .setOrigin(0.5);
+    this.drawTopBar();
 
-    this.moveText = this.add
-      .text(width / 2, 56, "Moves: 0", {
+    // Grid background panel
+    this.drawGridPanel();
+
+    // Build grid sprites
+    this.buildGrid();
+
+    // Tray
+    this.buildTray();
+
+    // Collected (marble columns at bottom)
+    this.buildCollected();
+
+    // Status text
+    this.statusText = this.add
+      .text(GAME_WIDTH / 2, this.trayY - 20, "", {
+        fontFamily: "Arial Black, sans-serif",
         fontSize: "16px",
-        fontFamily: "Arial",
-        color: "#a8c6f0",
+        color: "#ffffff",
+        stroke: "#5e2e91",
+        strokeThickness: 3,
       })
       .setOrigin(0.5);
+  }
 
-    // Buttons
-    this.makeButton(width - 70, 30, "Menu", 80, 30, () => {
+  // ------------- TOP BAR (back, level name, undo, restart) -------------
+  private drawTopBar(): void {
+    const barH = 60;
+    const barG = this.add.graphics();
+    barG.fillStyle(0x4a328a, 0.4);
+    barG.fillRect(0, 0, GAME_WIDTH, barH);
+
+    // Back button
+    this.makeIconButton(36, barH / 2, "<", () => {
       this.scene.start(SCENE_MENU);
     });
 
-    this.makeButton(width - 70, 68, "Restart", 80, 30, () => {
-      this.restartLevel();
-    });
-
-    this.makeButton(70, 30, "Undo", 80, 30, () => {
-      this.undoMove();
-    });
-  }
-
-  private makeButton(
-    x: number,
-    y: number,
-    label: string,
-    w: number,
-    h: number,
-    cb: () => void
-  ) {
-    const g = this.add.graphics();
-    g.fillStyle(0x0f3460, 1);
-    g.fillRoundedRect(-w / 2, -h / 2, w, h, 8);
-    g.lineStyle(1.5, 0x4a90d9, 1);
-    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 8);
-    g.setPosition(x, y).setInteractive(
-      new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h),
-      Phaser.Geom.Rectangle.Contains
-    );
-
-    const txt = this.add
-      .text(x, y, label, {
-        fontSize: "14px",
-        fontFamily: "Arial",
-        color: "#e0e8ff",
+    // Level name
+    this.add
+      .text(GAME_WIDTH / 2, barH / 2, `Level ${this.level.id} — ${this.level.name}`, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "20px",
+        color: "#ffffff",
+        stroke: "#5e2e91",
+        strokeThickness: 3,
       })
       .setOrigin(0.5);
 
-    g.on("pointerover", () => {
-      this.input.setDefaultCursor("pointer");
-      txt.setColor("#ffffff");
-    });
-    g.on("pointerout", () => {
-      this.input.setDefaultCursor("default");
-      txt.setColor("#e0e8ff");
-    });
-    g.on("pointerdown", cb);
-  }
-
-  private getTubeLayout(): { x: number; y: number }[] {
-    const { width, height } = this.scale;
-    const tubes = this.state.tubes;
-    const n = tubes.length;
-
-    // Lay out in rows if too many
-    const maxPerRow = 7;
-    const rows = Math.ceil(n / maxPerRow);
-    const result: { x: number; y: number }[] = [];
-
-    for (let i = 0; i < n; i++) {
-      const row = Math.floor(i / maxPerRow);
-      const rowCount = Math.min(maxPerRow, n - row * maxPerRow);
-      const totalW = (rowCount - 1) * TUBE_SPACING;
-      const startX = width / 2 - totalW / 2;
-      const col = i % maxPerRow;
-      const x = startX + col * TUBE_SPACING;
-      const rowH = (MARBLE_SPACING * (this.state.tubes[0].capacity + 1)) + 30;
-      const totalRows = rows * rowH;
-      const startY = height / 2 - totalRows / 2 + rowH / 2 + 60;
-      const y = startY + row * rowH;
-      result.push({ x, y });
-    }
-
-    return result;
-  }
-
-  private renderAll() {
-    // Destroy old graphics
-    this.tubeGraphics.forEach((g) => g.destroy());
-    this.marbleGraphics.forEach((row) => row.forEach((g) => g.destroy()));
-    this.lockTexts.forEach((t) => t.destroy());
-    this.tubeGraphics = [];
-    this.marbleGraphics = [];
-    this.lockTexts = [];
-
-    const positions = this.getTubeLayout();
-    const capacity = this.state.tubes[0].capacity;
-    const tubeH = capacity * MARBLE_SPACING + 20;
-
-    this.state.tubes.forEach((tube, i) => {
-      const { x, y } = positions[i];
-      const isSelected = this.state.selectedTubeIndex === i;
-
-      // Draw tube body
-      const g = this.add.graphics();
-      const tubeTop = y - tubeH / 2;
-
-      // Background fill
-      g.fillStyle(isSelected ? 0x1a5490 : 0x0f3460, 1);
-      g.fillRoundedRect(x - TUBE_WIDTH / 2, tubeTop, TUBE_WIDTH, tubeH, 12);
-
-      // Locked overlay
-      if (tube.locked) {
-        g.fillStyle(0x4a1a6e, 0.6);
-        g.fillRoundedRect(x - TUBE_WIDTH / 2, tubeTop, TUBE_WIDTH, tubeH, 12);
-      }
-
-      // Border
-      if (isSelected) {
-        g.lineStyle(3, 0x70b8ff, 1);
-      } else if (tube.locked) {
-        g.lineStyle(2, 0x9b59b6, 1);
-      } else {
-        g.lineStyle(2, 0x4a90d9, 0.6);
-      }
-      g.strokeRoundedRect(x - TUBE_WIDTH / 2, tubeTop, TUBE_WIDTH, tubeH, 12);
-
-      // Hitbox
-      g.setInteractive(
-        new Phaser.Geom.Rectangle(x - TUBE_WIDTH / 2, tubeTop, TUBE_WIDTH, tubeH),
-        Phaser.Geom.Rectangle.Contains
-      );
-
-      g.on("pointerdown", () => this.handleTubeClick(i));
-      g.on("pointerover", () => {
-        this.input.setDefaultCursor("pointer");
-      });
-      g.on("pointerout", () => {
-        this.input.setDefaultCursor("default");
-      });
-
-      this.tubeGraphics.push(g);
-
-      // Lock text
-      if (tube.locked) {
-        const lt = this.add
-          .text(x, tubeTop - 20, `🔒 ${tube.lockedTurns}`, {
-            fontSize: "14px",
-            fontFamily: "Arial",
-            color: "#c39bd3",
-          })
-          .setOrigin(0.5);
-        this.lockTexts.push(lt);
-      } else {
-        this.lockTexts.push(this.add.text(-9999, -9999, "")); // placeholder
-      }
-
-      // Draw marbles
-      const marbleRow: Phaser.GameObjects.Graphics[] = [];
-      tube.marbles.forEach((color, mi) => {
-        const mx = x;
-        const my = y + tubeH / 2 - 10 - MARBLE_SPACING * mi - MARBLE_RADIUS;
-        const mg = this.drawMarble(mx, my, color);
-        marbleRow.push(mg);
-      });
-      this.marbleGraphics.push(marbleRow);
+    // Undo button
+    this.makeIconButton(GAME_WIDTH - 88, barH / 2, "↶", () => {
+      this.handleUndo();
     });
 
-    // Update HUD
-    this.moveText.setText(`Moves: ${this.state.moveCount}`);
+    // Restart button
+    this.makeIconButton(GAME_WIDTH - 36, barH / 2, "↻", () => {
+      this.handleRestart();
+    });
   }
 
-  private drawMarble(x: number, y: number, color: MarbleColor): Phaser.GameObjects.Graphics {
+  private makeIconButton(x: number, y: number, label: string, cb: () => void): void {
+    const c = this.add.container(x, y);
     const g = this.add.graphics();
-    g.fillStyle(MARBLE_COLORS[color], 1);
-    g.fillCircle(x, y, MARBLE_RADIUS);
-    // Shine
-    g.fillStyle(0xffffff, 0.25);
-    g.fillCircle(x - 8, y - 8, 9);
-    return g;
+    g.fillStyle(0xffffff, 0.85);
+    g.fillRoundedRect(-20, -20, 40, 40, 10);
+    g.lineStyle(2, 0x5e2e91, 1);
+    g.strokeRoundedRect(-20, -20, 40, 40, 10);
+    const t = this.add
+      .text(0, 0, label, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "22px",
+        color: "#5e2e91",
+      })
+      .setOrigin(0.5);
+    c.add([g, t]);
+    c.setSize(40, 40);
+    c.setInteractive({ useHandCursor: true });
+    c.on("pointerdown", () => {
+      if (!this.isAnimating) cb();
+    });
+    c.on("pointerover", () => c.setScale(1.1));
+    c.on("pointerout", () => c.setScale(1));
   }
 
-  private handleTubeClick(tubeIdx: number) {
-    if (this.animating) return;
-    if (this.state.levelComplete) return;
+  // ------------- GRID PANEL -------------
+  private drawGridPanel(): void {
+    const panelW = this.level.cols * BLOCK_SIZE + (this.level.cols - 1) * BLOCK_GAP + 36;
+    const panelH = this.level.rows * BLOCK_SIZE + (this.level.rows - 1) * BLOCK_GAP + 36;
+    const panelX = (GAME_WIDTH - panelW) / 2;
+    const panelY = 80;
 
-    const { selectedTubeIndex, tubes } = this.state;
+    const g = this.add.graphics();
+    // Outer panel
+    g.fillStyle(0x4a328a, 0.5);
+    g.fillRoundedRect(panelX - 6, panelY - 6, panelW + 12, panelH + 12, 28);
+    g.fillStyle(UI_GRID_BG, 1);
+    g.fillRoundedRect(panelX, panelY, panelW, panelH, 22);
 
-    if (selectedTubeIndex === null) {
-      // Select a tube if it has marbles
-      if (tubes[tubeIdx].marbles.length > 0) {
-        this.state.selectedTubeIndex = tubeIdx;
-        this.renderAll();
+    this.gridOffsetX = panelX + 18 + BLOCK_SIZE / 2;
+    this.gridOffsetY = panelY + 18 + BLOCK_SIZE / 2;
+  }
+
+  // ------------- GRID -------------
+  private buildGrid(): void {
+    this.cellSprites = [];
+    for (let r = 0; r < this.state.rows; r++) {
+      const row: (CellSprite | null)[] = [];
+      for (let c = 0; c < this.state.cols; c++) {
+        const block = this.state.cells[r][c];
+        if (!block) {
+          row.push(null);
+          continue;
+        }
+        const spr = this.makeCellSprite(r, c, block);
+        row.push(spr);
       }
-    } else if (selectedTubeIndex === tubeIdx) {
-      // Deselect
-      this.state.selectedTubeIndex = null;
-      this.renderAll();
-    } else {
-      // Try to move
-      if (canMove(tubes, selectedTubeIndex, tubeIdx)) {
-        this.performMove(selectedTubeIndex, tubeIdx);
-      } else {
-        // Shake the selected tube briefly to indicate invalid move
-        this.state.selectedTubeIndex = tubeIdx; // switch selection
-        this.renderAll();
-      }
+      this.cellSprites.push(row);
     }
   }
 
-  private performMove(fromIdx: number, toIdx: number) {
-    this.animating = true;
+  private cellPos(r: number, c: number): { x: number; y: number } {
+    return {
+      x: this.gridOffsetX + c * (BLOCK_SIZE + BLOCK_GAP),
+      y: this.gridOffsetY + r * (BLOCK_SIZE + BLOCK_GAP),
+    };
+  }
 
-    // Save history before move
-    const snapshot = cloneTubes(this.state.tubes);
-    this.state.history.push(snapshot);
+  private makeCellSprite(r: number, c: number, block: Block): CellSprite {
+    const { x, y } = this.cellPos(r, c);
+    const container = this.add.container(x, y);
+    const graphics = this.add.graphics();
+    drawBlock(graphics, BLOCK_SIZE, block);
+    container.add(graphics);
 
-    // Animate marble flying from source to destination
-    const positions = this.getTubeLayout();
-    const fromPos = positions[fromIdx];
-    const toPos = positions[toIdx];
-    const capacity = this.state.tubes[0].capacity;
-    const tubeH = capacity * MARBLE_SPACING + 20;
+    let text: Phaser.GameObjects.Text | undefined;
+    let badge: Phaser.GameObjects.Graphics | undefined;
 
-    const fromTube = this.state.tubes[fromIdx];
-    const mi = fromTube.marbles.length - 1;
-    const color = topMarble(fromTube)!;
+    if (block.kind === "mystery") {
+      text = this.add
+        .text(0, 0, "?", {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "32px",
+          color: "#ffffff",
+          stroke: "#444444",
+          strokeThickness: 5,
+        })
+        .setOrigin(0.5);
+      container.add(text);
+    } else if (block.kind === "counter" && block.counter) {
+      // Dark badge across middle
+      badge = this.add.graphics();
+      badge.fillStyle(0x1a1a2e, 0.75);
+      badge.fillRoundedRect(-BLOCK_SIZE / 2 + 4, -10, BLOCK_SIZE - 8, 20, 6);
+      container.add(badge);
+      text = this.add
+        .text(0, 0, `${block.counter}`, {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "20px",
+          color: "#ffffff",
+        })
+        .setOrigin(0.5);
+      container.add(text);
+    }
 
-    const startX = fromPos.x;
-    const startY = fromPos.y + tubeH / 2 - 10 - MARBLE_SPACING * mi - MARBLE_RADIUS;
+    container.setSize(BLOCK_SIZE, BLOCK_SIZE);
+    container.setInteractive({ useHandCursor: true });
+    container.on("pointerdown", () => this.handleCellTap(r, c));
+    container.on("pointerover", () => {
+      if (!this.isAnimating) container.setScale(1.05);
+    });
+    container.on("pointerout", () => container.setScale(1));
 
-    const toTube = this.state.tubes[toIdx];
-    const destSlot = toTube.marbles.length; // will be placed at this index
-    const endX = toPos.x;
-    const endY = toPos.y + tubeH / 2 - 10 - MARBLE_SPACING * destSlot - MARBLE_RADIUS;
+    return { container, graphics, text, badge };
+  }
 
-    // Create a temporary moving marble on top of everything
-    const flyMarble = this.add.graphics();
-    flyMarble.fillStyle(MARBLE_COLORS[color], 1);
-    flyMarble.fillCircle(0, 0, MARBLE_RADIUS);
-    flyMarble.fillStyle(0xffffff, 0.25);
-    flyMarble.fillCircle(-8, -8, 9);
-    flyMarble.setPosition(startX, startY);
-    flyMarble.setDepth(100);
+  private redrawCell(r: number, c: number): void {
+    const block = this.state.cells[r][c];
+    const old = this.cellSprites[r][c];
+    if (old) {
+      old.container.destroy();
+      this.cellSprites[r][c] = null;
+    }
+    if (block) {
+      this.cellSprites[r][c] = this.makeCellSprite(r, c, block);
+    }
+  }
 
-    // Apply the logical move
-    this.state.tubes = applyMove(this.state.tubes, fromIdx, toIdx);
-    this.state.moveCount++;
-    this.state.selectedTubeIndex = null;
+  // ------------- TRAY -------------
+  private buildTray(): void {
+    const cap = this.state.trayCapacity;
+    const innerW = cap * TRAY_SLOT_SIZE + (cap - 1) * TRAY_GAP + 24;
+    const innerH = TRAY_HEIGHT;
+    const x = (GAME_WIDTH - innerW) / 2;
+    const y = 80 + this.level.rows * BLOCK_SIZE + (this.level.rows - 1) * BLOCK_GAP + 80;
 
-    // Redraw without the animating marble (the fly marble covers it)
-    this.renderAll();
+    this.trayY = y;
+    this.trayCenterX = x + innerW / 2;
+    this.trayInnerWidth = innerW;
 
-    // Animate arc path: go up, then down to dest
-    const midX = (startX + endX) / 2;
-    const midY = Math.min(startY, endY) - 80;
+    // Pipe-style background
+    const g = this.add.graphics();
+    drawTrayPipe(g, x, y, innerW, innerH, UI_TRAY_BG, UI_TRAY_BORDER);
+
+    // Slot indicators (faint dots)
+    for (let i = 0; i < cap; i++) {
+      const sx = this.traySlotX(i);
+      g.fillStyle(0x000000, 0.05);
+      g.fillCircle(sx, y + innerH / 2, TRAY_SLOT_SIZE / 2 - 4);
+    }
+  }
+
+  private traySlotX(idx: number): number {
+    const cap = this.state.trayCapacity;
+    const innerW = cap * TRAY_SLOT_SIZE + (cap - 1) * TRAY_GAP + 24;
+    const startX = (GAME_WIDTH - innerW) / 2 + 12 + TRAY_SLOT_SIZE / 2;
+    return startX + idx * (TRAY_SLOT_SIZE + TRAY_GAP);
+  }
+
+  // ------------- COLLECTED MARBLES -------------
+  private buildCollected(): void {
+    // Row of color stacks at the bottom showing collected marbles per color
+    const colors = this.gridColors();
+    const numCols = colors.length;
+    const colW = 50;
+    const gap = 8;
+    const totalW = numCols * colW + (numCols - 1) * gap;
+    const startX = (GAME_WIDTH - totalW) / 2 + colW / 2;
+    const y = GAME_HEIGHT - 90;
+
+    // Panel background
+    const panelG = this.add.graphics();
+    panelG.fillStyle(0x4a328a, 0.4);
+    panelG.fillRoundedRect(20, y - 50, GAME_WIDTH - 40, 120, 20);
+
+    this.add
+      .text(GAME_WIDTH / 2, y - 35, "COLLECTED", {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "12px",
+        color: "#e8def8",
+      })
+      .setOrigin(0.5);
+
+    colors.forEach((color, i) => {
+      const x = startX + i * (colW + gap);
+      const c = this.add.container(x, y);
+
+      const bg = this.add.graphics();
+      bg.fillStyle(BLOCK_COLORS[color], 0.25);
+      bg.fillRoundedRect(-colW / 2, -10, colW, 60, 10);
+      bg.lineStyle(2, BLOCK_COLORS[color], 0.6);
+      bg.strokeRoundedRect(-colW / 2, -10, colW, 60, 10);
+
+      const marbleG = this.add.graphics();
+      drawMarble(marbleG, 22, color);
+      marbleG.y = 8;
+
+      const txt = this.add
+        .text(0, 36, "0", {
+          fontFamily: "Arial Black, sans-serif",
+          fontSize: "16px",
+          color: "#ffffff",
+          stroke: "#5e2e91",
+          strokeThickness: 3,
+        })
+        .setOrigin(0.5);
+
+      c.add([bg, marbleG, txt]);
+      this.collectedTexts.set(color, txt);
+      this.collectedColumns.set(color, c);
+    });
+  }
+
+  private gridColors(): BlockColor[] {
+    // All distinct colors that appear in the level (treat mystery as "all")
+    const set = new Set<BlockColor>();
+    for (const row of this.level.grid) {
+      for (let c = 0; c < this.level.cols; c++) {
+        const tok = row.slice(c * 2, c * 2 + 2);
+        if (!tok || tok === "..") continue;
+        const colorChar = tok[0];
+        const kindChar = tok[1];
+        const map: Record<string, BlockColor> = {
+          r: "red", b: "blue", g: "green", y: "yellow",
+          p: "purple", o: "orange", k: "pink", c: "cyan",
+        };
+        const color = map[colorChar];
+        if (color && kindChar !== "m") set.add(color);
+      }
+    }
+    if (set.size === 0) return ALL_COLORS.slice(0, 4);
+    return [...set];
+  }
+
+  // ------------- INTERACTION -------------
+  private handleCellTap(r: number, c: number): void {
+    if (this.isAnimating || this.state.status !== "playing") return;
+    const cell = this.state.cells[r][c];
+    if (!cell) return;
+
+    // Snapshot for undo BEFORE mutation
+    const snap = snapshot(this.state);
+
+    const result = tapCell(this.state, r, c);
+
+    if (!result.movedToTray) {
+      // Counter decremented or tray full
+      if (this.state.tray.length >= this.state.trayCapacity && cell.kind !== "counter") {
+        this.flashStatus("Tray full!");
+        return;
+      }
+      // Update visual for counter decrement
+      this.redrawCell(r, c);
+      this.tweens.add({
+        targets: this.cellSprites[r][c]?.container,
+        scale: { from: 1.1, to: 1 },
+        duration: 150,
+        ease: "Back.out",
+      });
+      this.state.history.push(snap);
+      return;
+    }
+
+    // Block moved to tray — animate
+    this.state.history.push(snap);
+    this.isAnimating = true;
+    this.animateBlockToTray(r, c, result.block!);
+  }
+
+  private animateBlockToTray(r: number, c: number, block: Block): void {
+    const sprite = this.cellSprites[r][c];
+    // Note: state.cells[r][c] is already null, but sprite still exists
+    const startContainer = sprite?.container;
+    if (!sprite || !startContainer) {
+      this.isAnimating = false;
+      this.checkResolutions();
+      return;
+    }
+    this.cellSprites[r][c] = null;
+
+    // Find tray index where this block was inserted
+    const trayIdx = this.findInsertedTrayIndex(block);
+
+    // Create a temporary "flying" sprite styled like the resolved block
+    const flyG = this.add.graphics();
+    drawBlock(flyG, BLOCK_SIZE, block);
+    const fly = this.add.container(startContainer.x, startContainer.y, [flyG]);
+    fly.setScale(1);
+    startContainer.destroy();
+
+    const targetX = this.traySlotX(trayIdx);
+    const targetY = this.trayY + TRAY_HEIGHT / 2;
+    const targetScale = TRAY_SLOT_SIZE / BLOCK_SIZE;
 
     this.tweens.add({
-      targets: flyMarble,
-      x: { value: endX, ease: "Quad.easeInOut" },
-      y: {
-        value: endY,
-        ease: "Quad.easeIn",
-      },
-      duration: ANIMATION_DURATION,
+      targets: fly,
+      x: targetX,
+      y: targetY,
+      scaleX: targetScale,
+      scaleY: targetScale,
+      duration: TRAY_ANIM_MS,
+      ease: "Cubic.in",
       onComplete: () => {
-        flyMarble.destroy();
-        this.animating = false;
-
-        // Check win
-        if (isLevelComplete(this.state.tubes)) {
-          this.state.levelComplete = true;
-          this.time.delayedCall(300, () => {
-            this.scene.start(SCENE_COMPLETE, {
-              levelIndex: this.levelIndex,
-              moves: this.state.moveCount,
-            });
-          });
-        }
+        fly.destroy();
+        this.rebuildTraySprites();
+        this.checkResolutions();
       },
     });
   }
 
-  private undoMove() {
-    if (this.animating) return;
-    if (this.state.history.length === 0) return;
-
-    const prev = this.state.history.pop()!;
-    this.state.tubes = prev;
-    this.state.moveCount = Math.max(0, this.state.moveCount - 1);
-    this.state.selectedTubeIndex = null;
-    this.renderAll();
+  private findInsertedTrayIndex(block: Block): number {
+    // Walk from the right; the inserted block is the rightmost of its color.
+    for (let i = this.state.tray.length - 1; i >= 0; i--) {
+      if (this.state.tray[i].color === block.color) return i;
+    }
+    return this.state.tray.length - 1;
   }
 
-  private restartLevel() {
-    const level = LEVELS[this.levelIndex];
-    this.state = buildGameState(level);
-    this.renderAll();
+  private rebuildTraySprites(): void {
+    // Clear old
+    for (const s of this.traySprites) s.container.destroy();
+    this.traySprites = [];
+
+    const targetY = this.trayY + TRAY_HEIGHT / 2;
+    const targetScale = TRAY_SLOT_SIZE / BLOCK_SIZE;
+    this.state.tray.forEach((b, idx) => {
+      const g = this.add.graphics();
+      drawBlock(g, BLOCK_SIZE, b);
+      const c = this.add.container(this.traySlotX(idx), targetY, [g]);
+      c.setScale(targetScale);
+      this.traySprites.push({ container: c, graphics: g, block: b });
+    });
+  }
+
+  private checkResolutions(): void {
+    const match = findMatch(this.state.tray);
+    if (match) {
+      this.animateMatchClear(match);
+      return;
+    }
+
+    // No match — finalize turn
+    this.isAnimating = false;
+    if (isGridEmpty(this.state)) {
+      this.state.status = "won";
+      this.time.delayedCall(300, () => {
+        this.scene.start(SCENE_COMPLETE, { levelId: this.level.id });
+      });
+      return;
+    }
+    if (isLost(this.state)) {
+      this.state.status = "lost";
+      this.time.delayedCall(300, () => {
+        this.scene.start(SCENE_GAMEOVER, { levelId: this.level.id });
+      });
+    }
+  }
+
+  private animateMatchClear(match: { start: number; length: number }): void {
+    const color = this.state.tray[match.start].color;
+    const sprites = this.traySprites.slice(match.start, match.start + match.length);
+
+    // Pop animation
+    sprites.forEach((s, i) => {
+      this.tweens.add({
+        targets: s.container,
+        scale: { from: TRAY_SLOT_SIZE / BLOCK_SIZE, to: (TRAY_SLOT_SIZE / BLOCK_SIZE) * 1.3 },
+        alpha: { from: 1, to: 0 },
+        duration: MATCH_ANIM_MS,
+        delay: i * 50,
+        ease: "Back.in",
+      });
+    });
+
+    // After pop, send marbles to collected column
+    this.time.delayedCall(MATCH_ANIM_MS + match.length * 50, () => {
+      // Update logic state
+      clearMatch(this.state, match);
+      // Animate marbles flying to collected column
+      const targetCol = this.collectedColumns.get(color);
+      if (targetCol) {
+        sprites.forEach((s, i) => {
+          const marbleG = this.add.graphics();
+          drawMarble(marbleG, 18, color);
+          const m = this.add.container(s.container.x, s.container.y, [marbleG]);
+          this.tweens.add({
+            targets: m,
+            x: targetCol.x,
+            y: targetCol.y + 8,
+            scale: 0.7,
+            duration: 360,
+            delay: i * 40,
+            ease: "Cubic.in",
+            onComplete: () => {
+              m.destroy();
+            },
+          });
+        });
+      }
+      this.time.delayedCall(360 + match.length * 40, () => {
+        this.rebuildTraySprites();
+        this.updateCollectedTexts();
+        // Recurse — there may be cascading matches (rare, but safe)
+        this.checkResolutions();
+      });
+    });
+  }
+
+  private updateCollectedTexts(): void {
+    for (const [color, txt] of this.collectedTexts.entries()) {
+      txt.setText(`${this.state.collected[color]}`);
+    }
+  }
+
+  private flashStatus(msg: string): void {
+    this.statusText.setText(msg);
+    this.statusText.setAlpha(1);
+    this.tweens.add({
+      targets: this.statusText,
+      alpha: 0,
+      duration: 1200,
+      delay: 400,
+    });
+  }
+
+  // ------------- UNDO / RESTART -------------
+  private handleUndo(): void {
+    if (this.state.history.length === 0) {
+      this.flashStatus("Nothing to undo");
+      return;
+    }
+    const snap = this.state.history.pop()!;
+    restoreSnapshot(this.state, snap);
+    this.rebuildAllSprites();
+  }
+
+  private handleRestart(): void {
+    this.state = buildGameState(this.level);
+    this.rebuildAllSprites();
+  }
+
+  private rebuildAllSprites(): void {
+    // Wipe existing
+    for (const row of this.cellSprites) {
+      for (const s of row) {
+        if (s) s.container.destroy();
+      }
+    }
+    this.cellSprites = [];
+    for (const s of this.traySprites) s.container.destroy();
+    this.traySprites = [];
+
+    this.buildGrid();
+    this.rebuildTraySprites();
+    this.updateCollectedTexts();
+    this.statusText.setText("");
+    this.isAnimating = false;
   }
 }

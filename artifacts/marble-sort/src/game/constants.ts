@@ -14,7 +14,7 @@ export const COUNTER_TAB_HEIGHT = 18;
 export const LOCK_BADGE_SIZE = 22;
 
 // Conveyor visuals
-export const CONVEYOR_HEIGHT = 64;
+export const CONVEYOR_HEIGHT = 78;
 export const CONVEYOR_MARGIN_X = 28;
 export const CONVEYOR_MARBLE_RADIUS = 14;
 export const CONVEYOR_DROP_RADIUS = 18;
@@ -32,7 +32,8 @@ export const MARBLE_ANIM_MS = 220;
 
 // Default level numbers
 export const DEFAULT_MARBLES_PER_BLOCK = 3;
-export const DEFAULT_CONVEYOR_CAPACITY = 8;
+export const MAX_CONVEYOR_CAPACITY = 16;
+export const DEFAULT_CONVEYOR_CAPACITY = MAX_CONVEYOR_CAPACITY;
 export const DEFAULT_TICK_MS = 250;
 export const DEFAULT_TUBE_CAPACITY = 6;
 

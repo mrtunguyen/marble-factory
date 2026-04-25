@@ -21,8 +21,14 @@ import {
   UI_BG_TOP,
   UI_BG_BOTTOM,
   UI_GRID_BG,
+  UI_GRID_PANEL_BORDER,
+  UI_FUNNEL,
+  UI_FUNNEL_DARK,
   UI_PIPE_BG,
   UI_PIPE_BORDER,
+  UI_PIPE_TRACK,
+  UI_TUBE_SLOT_EMPTY,
+  UI_TUBE_SLOT_BORDER,
 } from "../game/constants";
 import { LEVELS } from "../game/levels";
 import { drawTile, drawMarble, drawConveyorPipe, drawTube } from "../game/draw";
@@ -169,25 +175,105 @@ export class GameScene extends Phaser.Scene {
 
   // ─────────────────────────── GRID PANEL ───────────────────────────
   private drawGridPanel(): void {
-    const panelW =
+    const gridW =
       this.level.cols * TILE_SIZE +
-      (this.level.cols - 1) * TILE_GAP +
-      36;
-    const panelH =
+      (this.level.cols - 1) * TILE_GAP;
+    const gridH =
       this.level.rows * TILE_SIZE +
-      (this.level.rows - 1) * TILE_GAP +
-      36;
+      (this.level.rows - 1) * TILE_GAP;
+    const panelW = Math.max(gridW + 72, 420);
+    const panelH = Math.max(gridH + 58, 270);
     const panelX = (GAME_WIDTH - panelW) / 2;
-    const panelY = 90;
+    const panelY = 76;
+    const panelBottom = panelY + panelH;
+    const funnelBottomY = 382;
+    const throatW = 82;
 
     const g = this.add.graphics();
-    g.fillStyle(0x4a328a, 0.5);
-    g.fillRoundedRect(panelX - 6, panelY - 6, panelW + 12, panelH + 12, 28);
-    g.fillStyle(UI_GRID_BG, 1);
-    g.fillRoundedRect(panelX, panelY, panelW, panelH, 22);
 
-    this.gridOriginX = panelX + 18 + TILE_SIZE / 2;
-    this.gridOriginY = panelY + 18 + TILE_SIZE / 2;
+    // Main grid chassis with stepped shoulders like the reference machine.
+    g.fillStyle(UI_GRID_PANEL_BORDER, 1);
+    g.fillRoundedRect(panelX - 7, panelY - 7, panelW + 14, panelH + 14, 24);
+    g.fillStyle(UI_GRID_BG, 1);
+    g.fillRoundedRect(panelX, panelY, panelW, panelH, 20);
+
+    // Bottom connector: marbles leave the grid through this funnel into the belt.
+    this.drawGridFunnel(
+      g,
+      panelX,
+      panelBottom - 30,
+      panelW,
+      funnelBottomY,
+      throatW,
+      UI_FUNNEL_DARK,
+      10,
+    );
+    this.drawGridFunnel(
+      g,
+      panelX + 8,
+      panelBottom - 26,
+      panelW - 16,
+      funnelBottomY - 4,
+      throatW - 16,
+      UI_FUNNEL,
+      0,
+    );
+
+    // Small dark mouth above the conveyor where logic-controlled marbles enter.
+    g.fillStyle(0x2c5c5e, 0.38);
+    g.fillRoundedRect(
+      GAME_WIDTH / 2 - throatW / 2 + 7,
+      funnelBottomY - 10,
+      throatW - 14,
+      18,
+      9,
+    );
+
+    // Pale empty slots make the playfield read as a grid even after blocks clear.
+    const slotOriginX = panelX + (panelW - gridW) / 2;
+    const slotOriginY = panelY + 22 + (panelH - 44 - gridH) / 2;
+    for (let r = 0; r < this.level.rows; r++) {
+      for (let c = 0; c < this.level.cols; c++) {
+        const sx = slotOriginX + c * (TILE_SIZE + TILE_GAP);
+        const sy = slotOriginY + r * (TILE_SIZE + TILE_GAP);
+        g.fillStyle(UI_TUBE_SLOT_BORDER, 0.28);
+        g.fillRoundedRect(sx - 2, sy + 3, TILE_SIZE + 4, TILE_SIZE + 4, 12);
+        g.fillStyle(UI_TUBE_SLOT_EMPTY, 0.92);
+        g.fillRoundedRect(sx, sy, TILE_SIZE, TILE_SIZE, 12);
+        g.fillStyle(0xffffff, 0.35);
+        g.fillRoundedRect(sx + 5, sy + 5, TILE_SIZE - 10, 14, 8);
+      }
+    }
+
+    this.gridOriginX = slotOriginX + TILE_SIZE / 2;
+    this.gridOriginY = slotOriginY + TILE_SIZE / 2;
+  }
+
+  private drawGridFunnel(
+    g: Phaser.GameObjects.Graphics,
+    panelX: number,
+    topY: number,
+    panelW: number,
+    bottomY: number,
+    throatW: number,
+    color: number,
+    shadowOffset: number,
+  ): void {
+    const centerX = GAME_WIDTH / 2;
+    g.fillStyle(color, 1);
+    g.beginPath();
+    g.moveTo(panelX + shadowOffset, topY);
+    g.lineTo(panelX + panelW * 0.32, topY + 18);
+    g.lineTo(centerX - throatW / 2, bottomY);
+    g.lineTo(centerX + throatW / 2, bottomY);
+    g.lineTo(panelX + panelW * 0.68, topY + 18);
+    g.lineTo(panelX + panelW - shadowOffset, topY);
+    g.lineTo(panelX + panelW - shadowOffset, topY + 48);
+    g.lineTo(centerX + throatW / 2 + shadowOffset, bottomY + 14);
+    g.lineTo(centerX - throatW / 2 - shadowOffset, bottomY + 14);
+    g.lineTo(panelX + shadowOffset, topY + 48);
+    g.closePath();
+    g.fillPath();
   }
 
   private tilePos(r: number, c: number): { x: number; y: number } {
@@ -304,53 +390,58 @@ export class GameScene extends Phaser.Scene {
   private drawConveyor(): void {
     const innerW = GAME_WIDTH - CONVEYOR_MARGIN_X * 2;
     const x = CONVEYOR_MARGIN_X;
-    const y = 410;
+    const y = 392;
     this.conveyorX = x;
     this.conveyorY = y;
     this.conveyorWidth = innerW;
 
-    // Label
-    this.add
-      .text(GAME_WIDTH / 2, y - 18, "CONVEYOR", {
-        fontFamily: "Arial Black, sans-serif",
-        fontSize: "11px",
-        color: "#e8def8",
-      })
-      .setOrigin(0.5);
-
     const g = this.add.graphics();
     drawConveyorPipe(g, x, y, innerW, CONVEYOR_HEIGHT, UI_PIPE_BG, UI_PIPE_BORDER);
 
+    // Inner oval track: marbles follow these logical slots, not a physics body.
+    g.lineStyle(10, UI_PIPE_TRACK, 0.9);
+    g.strokeEllipse(
+      x + innerW / 2,
+      y + CONVEYOR_HEIGHT / 2,
+      innerW - CONVEYOR_MARBLE_RADIUS * 2,
+      CONVEYOR_HEIGHT - CONVEYOR_MARBLE_RADIUS,
+    );
+
     // Slot indicators (faint dots)
     for (let i = 0; i < this.state.conveyor.length; i++) {
-      const sx = this.conveyorSlotX(i);
+      const { x: sx, y: sy } = this.conveyorSlotPos(i);
       g.fillStyle(0x000000, 0.05);
-      g.fillCircle(sx, y + CONVEYOR_HEIGHT / 2, CONVEYOR_MARBLE_RADIUS - 2);
+      g.fillCircle(sx, sy, CONVEYOR_MARBLE_RADIUS - 2);
     }
 
-    // Direction arrow
+    // Direction arrow on the loop.
     g.fillStyle(0x7e57c2, 0.6);
-    const ay = y + CONVEYOR_HEIGHT / 2;
-    const ax = x + innerW + 2;
-    g.fillTriangle(ax, ay - 8, ax, ay + 8, ax + 12, ay);
+    const ax = x + innerW - 36;
+    const ay = y + CONVEYOR_HEIGHT / 2 - 20;
+    g.fillTriangle(ax - 10, ay - 6, ax + 10, ay - 6, ax, ay + 10);
   }
 
-  private conveyorSlotX(idx: number): number {
-    const slotWidth = this.conveyorWidth / this.state.conveyor.length;
-    return this.conveyorX + slotWidth * (idx + 0.5);
-  }
-
-  private conveyorSlotY(): number {
-    return this.conveyorY + CONVEYOR_HEIGHT / 2;
+  private conveyorSlotPos(idx: number): { x: number; y: number } {
+    const count = Math.max(1, this.state.conveyor.length);
+    const angle = -Math.PI / 2 + (idx / count) * Math.PI * 2;
+    const rx = this.conveyorWidth / 2 - CONVEYOR_MARBLE_RADIUS - 8;
+    const ry = CONVEYOR_HEIGHT / 2 - CONVEYOR_MARBLE_RADIUS / 2;
+    return {
+      x: this.conveyorX + this.conveyorWidth / 2 + Math.cos(angle) * rx,
+      y: this.conveyorY + CONVEYOR_HEIGHT / 2 + Math.sin(angle) * ry,
+    };
   }
 
   // Position used to display marbles waiting in the pendingEject queue,
-  // stacked just above-left of the conveyor.
+  // stacked below the grid drop point until the logical conveyor has room.
   private pendingPos(idx: number): { x: number; y: number } {
-    const startX = this.conveyorX + 16;
+    const startX = GAME_WIDTH / 2 - 42;
     return {
-      x: startX + idx * (CONVEYOR_MARBLE_RADIUS * 2 + 4),
-      y: this.conveyorY - 30,
+      x: startX + (idx % 4) * (CONVEYOR_MARBLE_RADIUS * 2 + 4),
+      y:
+        this.conveyorY -
+        34 -
+        Math.floor(idx / 4) * (CONVEYOR_MARBLE_RADIUS * 2 + 2),
     };
   }
 
@@ -369,14 +460,6 @@ export class GameScene extends Phaser.Scene {
     const panelH = TUBE_CAP_HEIGHT + bodyHeight + TUBE_BOTTOM_HEIGHT + 30;
     panelG.fillStyle(0x4a328a, 0.4);
     panelG.fillRoundedRect(20, top - 16, GAME_WIDTH - 40, panelH, 24);
-
-    this.add
-      .text(GAME_WIDTH / 2, top - 6, "SORTING TUBES", {
-        fontFamily: "Arial Black, sans-serif",
-        fontSize: "11px",
-        color: "#e8def8",
-      })
-      .setOrigin(0.5);
 
     for (let i = 0; i < n; i++) {
       const tube = this.state.tubes[i];
@@ -563,7 +646,8 @@ export class GameScene extends Phaser.Scene {
     });
     this.state.conveyor.forEach((m, i) => {
       if (!m) return;
-      this.spawnMarbleSprite(m, this.conveyorSlotX(i), this.conveyorSlotY());
+      const p = this.conveyorSlotPos(i);
+      this.spawnMarbleSprite(m, p.x, p.y);
     });
     this.state.tubes.forEach((t, i) => {
       t.marbles.forEach((m, j) => {
@@ -603,18 +687,19 @@ export class GameScene extends Phaser.Scene {
 
     const result = tick(this.state);
 
-    // 1. Animate conveyor shift: every marble that survived in the conveyor
-    //    after the tick moves one slot right.
+    // 1. Animate conveyor shift: every marble that survived advances to its
+    //    next logical slot on the oval path.
     for (let i = 0; i < this.state.conveyor.length; i++) {
       const m = this.state.conveyor[i];
       if (!m) continue;
       const spr = this.marbleSprites.get(m.id);
       if (!spr) continue;
+      const p = this.conveyorSlotPos(i);
       this.tweens.killTweensOf(spr.container);
       this.tweens.add({
         targets: spr.container,
-        x: this.conveyorSlotX(i),
-        y: this.conveyorSlotY(),
+        x: p.x,
+        y: p.y,
         duration: this.state.tickMs - 20,
         ease: "Linear",
       });
@@ -625,11 +710,12 @@ export class GameScene extends Phaser.Scene {
     if (result.injected) {
       const spr = this.marbleSprites.get(result.injected.id);
       if (spr) {
+        const p = this.conveyorSlotPos(0);
         this.tweens.killTweensOf(spr.container);
         this.tweens.add({
           targets: spr.container,
-          x: this.conveyorSlotX(0),
-          y: this.conveyorSlotY(),
+          x: p.x,
+          y: p.y,
           duration: this.state.tickMs - 20,
           ease: "Cubic.out",
         });
@@ -671,7 +757,7 @@ export class GameScene extends Phaser.Scene {
         }
         this.updateTubeCount(tubeIdx);
       } else {
-        // Routing failed — animate marble dropping off the right edge then
+        // Routing failed — animate marble dropping away from the sorting exit.
         // GameOver scene.
         if (spr) {
           this.tweens.add({

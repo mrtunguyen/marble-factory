@@ -36,6 +36,7 @@ export const MAX_CONVEYOR_CAPACITY = 16;
 export const DEFAULT_CONVEYOR_CAPACITY = MAX_CONVEYOR_CAPACITY;
 export const DEFAULT_TICK_MS = 250;
 export const DEFAULT_TUBE_CAPACITY = 6;
+export const MMC_CAPACITY = 3;
 
 // Marble colors — bright candy palette
 export const MARBLE_COLORS: Record<MarbleColor, number> = {

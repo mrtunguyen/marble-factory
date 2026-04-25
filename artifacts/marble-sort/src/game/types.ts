@@ -42,6 +42,19 @@ export interface Tube {
   marbles: Marble[]; // bottom → top
 }
 
+export interface MMC {
+  id: number;
+  color: MarbleColor;
+  capacity: number;
+  marbles: Marble[];
+}
+
+export interface Lane {
+  id: number;
+  queue: MMC[];
+  shipped: number;
+}
+
 // Authoring format — used by built-in levels and the editor
 export interface LevelTile {
   kind: TileKind;
@@ -69,6 +82,7 @@ export interface GameState {
   pendingEject: Marble[];          // marbles waiting to enter conveyor
   conveyor: (Marble | null)[];     // index 0 = entry, last index = sorting exit
   tubes: Tube[];
+  lanes?: Lane[];
   status: "playing" | "won" | "lost";
   nextMarbleId: number;
   marblesPerBlock: number;
@@ -81,5 +95,6 @@ export interface GameStateSnapshot {
   pendingEject: Marble[];
   conveyor: (Marble | null)[];
   tubes: Tube[];
+  lanes?: Lane[];
   nextMarbleId: number;
 }

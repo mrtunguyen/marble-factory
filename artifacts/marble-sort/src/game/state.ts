@@ -11,11 +11,7 @@ import { refreshLocks, isGridEmpty } from "./gridManager";
 import { injectFromQueue } from "./movementSystem";
 import { tickConveyor, isConveyorEmpty } from "./conveyorSystem";
 import { MAX_CONVEYOR_CAPACITY } from "./constants";
-import {
-  routeMarble,
-  allTubesCorrect,
-  type RouteResult,
-} from "./containerSystem";
+import { buildLanesFromTubes, allLanesComplete, pickupFromConveyor, shipFilledMMCs, type PickupEvent, type ShipEvent } from "./laneSystem";
 
 /** Build a fresh GameState from a level definition. */
 export function buildGameState(def: LevelDef): GameState {
@@ -51,6 +47,7 @@ export function buildGameState(def: LevelDef): GameState {
     def.conveyorCapacity,
     MAX_CONVEYOR_CAPACITY,
   );
+  const laneBuild = buildLanesFromTubes(def.tubes, 1);
 
   const state: GameState = {
     cols: def.cols,
@@ -59,8 +56,9 @@ export function buildGameState(def: LevelDef): GameState {
     pendingEject: [],
     conveyor: new Array(conveyorCapacity).fill(null),
     tubes,
+    lanes: laneBuild.lanes,
     status: "playing",
-    nextMarbleId: 1,
+    nextMarbleId: laneBuild.nextMMCId,
     marblesPerBlock: def.marblesPerBlock,
     tickMs: def.tickMs,
     history: [],
@@ -82,6 +80,16 @@ export function snapshot(state: GameState): GameStateSnapshot {
       capacity: t.capacity,
       marbles: t.marbles.map((m) => ({ ...m })),
     })),
+    lanes: state.lanes?.map((lane) => ({
+      id: lane.id,
+      shipped: lane.shipped,
+      queue: lane.queue.map((mmc) => ({
+        id: mmc.id,
+        color: mmc.color,
+        capacity: mmc.capacity,
+        marbles: mmc.marbles.map((m) => ({ ...m })),
+      })),
+    })),
     nextMarbleId: state.nextMarbleId,
   };
 }
@@ -98,6 +106,16 @@ export function restoreSnapshot(
     capacity: t.capacity,
     marbles: t.marbles.map((m) => ({ ...m })),
   }));
+  state.lanes = snap.lanes?.map((lane) => ({
+    id: lane.id,
+    shipped: lane.shipped,
+    queue: lane.queue.map((mmc) => ({
+      id: mmc.id,
+      color: mmc.color,
+      capacity: mmc.capacity,
+      marbles: mmc.marbles.map((m) => ({ ...m })),
+    })),
+  }));
   state.nextMarbleId = snap.nextMarbleId;
   state.status = "playing";
   refreshLocks(state);
@@ -108,46 +126,48 @@ export function restoreSnapshot(
 export interface TickResult {
   injected: Marble | null;       // marble that entered conveyor[0] this tick
   emitted: Marble | null;        // marble that reached the sorting exit
-  routed: RouteResult | null;    // routing outcome for the emitted marble
+  pickups: PickupEvent[];
+  shipped: ShipEvent[];
   statusChanged: boolean;        // status moved from "playing" to won/lost
 }
 
 /** Advance one tick. The renderer should call this on a fixed cadence
  *  (state.tickMs) while state.status === "playing". */
-export function tick(state: GameState): TickResult {
+export function tick(
+  state: GameState,
+  laneSlotIndex: (laneIdx: number) => number = (laneIdx) => laneIdx,
+): TickResult {
   if (state.status !== "playing") {
-    return { injected: null, emitted: null, routed: null, statusChanged: false };
+    return { injected: null, emitted: null, pickups: [], shipped: [], statusChanged: false };
   }
 
   // 1. Drain the sorting exit before shifting so we don't lose it.
   const emitted = tickConveyor(state);
+  if (emitted) {
+    state.status = "lost";
+    return { injected: null, emitted, pickups: [], shipped: [], statusChanged: true };
+  }
 
   // 2. Inject from pending-eject queue into the entry slot.
   const injected = injectFromQueue(state);
 
-  // 3. Route the emitted marble (if any) into a tube.
-  let routed: RouteResult | null = null;
-  if (emitted) {
-    routed = routeMarble(state, emitted);
-    if (!routed.ok) {
-      state.status = "lost";
-      return { injected, emitted, routed, statusChanged: true };
-    }
-  }
+  // 3. MMCs can only take marbles from their adjacent conveyor slot.
+  const pickups = pickupFromConveyor(state, laneSlotIndex);
+  const shipped = shipFilledMMCs(state);
 
-  // 4. Win check: grid empty, queue empty, conveyor empty, all tubes correct.
+  // 4. Win check: grid empty, queue empty, conveyor empty, all MMCs complete.
   if (
     isGridEmpty(state) &&
     state.pendingEject.length === 0 &&
     isConveyorEmpty(state) &&
-    allTubesCorrect(state)
+    allLanesComplete(state)
   ) {
     state.status = "won";
-    return { injected, emitted, routed, statusChanged: true };
+    return { injected, emitted, pickups, shipped, statusChanged: true };
   }
 
-  return { injected, emitted, routed, statusChanged: false };
+  return { injected, emitted, pickups, shipped, statusChanged: false };
 }
 
 export { isGridEmpty } from "./gridManager";
-export { allTubesCorrect } from "./containerSystem";
+export { allLanesComplete } from "./laneSystem";

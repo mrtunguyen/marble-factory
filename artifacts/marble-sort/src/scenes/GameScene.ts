@@ -9,10 +9,6 @@ import {
   CONVEYOR_MARBLE_RADIUS,
   TUBE_WIDTH,
   TUBE_GAP,
-  TUBE_MARBLE_DIAMETER,
-  TUBE_CAP_HEIGHT,
-  TUBE_BOTTOM_HEIGHT,
-  TUBE_PADDING,
   MARBLE_ANIM_MS,
   MARBLE_COLORS,
   SCENE_MENU,
@@ -29,9 +25,10 @@ import {
   UI_PIPE_TRACK,
   UI_TUBE_SLOT_EMPTY,
   UI_TUBE_SLOT_BORDER,
+  MMC_CAPACITY,
 } from "../game/constants";
 import { LEVELS } from "../game/levels";
-import { drawTile, drawMarble, drawConveyorPipe, drawTube } from "../game/draw";
+import { drawTile, drawMarble, drawConveyorPipe } from "../game/draw";
 import {
   buildGameState,
   snapshot,
@@ -40,6 +37,7 @@ import {
 } from "../game/state";
 import { tapTile } from "../game/gridManager";
 import type { GameState, GridTile, LevelDef, Marble } from "../game/types";
+import type { ShipEvent } from "../game/laneSystem";
 
 interface TileSprite {
   container: Phaser.GameObjects.Container;
@@ -69,7 +67,9 @@ export class GameScene extends Phaser.Scene {
   private conveyorX = 0; // left edge of inner pipe
   private conveyorY = 0; // top edge of inner pipe
   private conveyorWidth = 0;
-  private tubesY = 0; // top of cap row
+  private lanesY = 0;
+  private shippingLaneIds: Set<number> = new Set();
+  private mmcExitDepth = 20;
 
   constructor() {
     super("GameScene");
@@ -88,6 +88,8 @@ export class GameScene extends Phaser.Scene {
     this.marbleSprites = new Map();
     this.isAnimating = false;
     this.lastTickAt = 0;
+    this.shippingLaneIds = new Set();
+    this.mmcExitDepth = 20;
   }
 
   create(): void {
@@ -100,7 +102,7 @@ export class GameScene extends Phaser.Scene {
     this.drawGridPanel();
     this.buildGrid();
     this.drawConveyor();
-    this.drawTubes();
+    this.drawMMCLanes();
 
     // Status banner just below the top bar
     this.statusText = this.add
@@ -446,85 +448,157 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────── TUBES ───────────────────────────
-  private drawTubes(): void {
-    const n = this.state.tubes.length;
-    const totalW = n * TUBE_WIDTH + (n - 1) * TUBE_GAP;
-    const startX = (GAME_WIDTH - totalW) / 2;
-    const capacity = Math.max(...this.state.tubes.map((t) => t.capacity));
-    const bodyHeight = capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
-    const top = 510;
-    this.tubesY = top;
+  private drawMMCLanes(): void {
+    const lanes = this.state.lanes ?? [];
+    if (lanes.length === 0) return;
 
-    // Panel behind tubes
+    this.lanesY = 520;
     const panelG = this.add.graphics();
-    const panelH = TUBE_CAP_HEIGHT + bodyHeight + TUBE_BOTTOM_HEIGHT + 30;
-    panelG.fillStyle(0x4a328a, 0.4);
-    panelG.fillRoundedRect(20, top - 16, GAME_WIDTH - 40, panelH, 24);
+    panelG.fillStyle(0x4a328a, 0.28);
+    panelG.fillRoundedRect(20, this.lanesY - 16, GAME_WIDTH - 40, 280, 24);
 
-    for (let i = 0; i < n; i++) {
-      const tube = this.state.tubes[i];
-      const x = startX + i * (TUBE_WIDTH + TUBE_GAP);
-      const y = top + 12;
-      const tubeBodyH = tube.capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
-      const g = this.add.graphics();
-      drawTube(
-        g,
-        x,
-        y,
-        TUBE_WIDTH,
-        tubeBodyH,
-        TUBE_CAP_HEIGHT,
-        TUBE_BOTTOM_HEIGHT,
-        tube.color,
-      );
-      // Capacity hint at the bottom: "0 / 6"
-      this.add
-        .text(
-          x + TUBE_WIDTH / 2,
-          y + TUBE_CAP_HEIGHT + tubeBodyH + TUBE_BOTTOM_HEIGHT + 8,
-          `${tube.marbles.length}/${tube.capacity}`,
-          {
-            fontFamily: "Arial Black, sans-serif",
-            fontSize: "13px",
-            color: "#ffffff",
-            stroke: "#5e2e91",
-            strokeThickness: 3,
-          },
-        )
-        .setOrigin(0.5)
-        .setName(`tubeCount-${i}`);
+    for (let i = 0; i < lanes.length; i++) {
+      this.drawMMCLane(i);
     }
   }
 
-  // Position of the marble at slot j in tube i (j=0 bottom).
-  private tubeMarblePos(
-    tubeIdx: number,
-    j: number,
-  ): { x: number; y: number } {
-    const n = this.state.tubes.length;
+  private drawMMCLane(i: number): void {
+    const lane = this.state.lanes?.[i];
+    if (!lane) return;
+
+    this.children.getByName(`lane-${i}`)?.destroy();
+    const container = this.add.container(0, 0).setName(`lane-${i}`);
+    const x = this.laneX(i);
+    const y = this.lanesY;
+    const g = this.add.graphics();
+    container.add(g);
+
+    g.fillStyle(0xffffff, 0.7);
+    g.fillRoundedRect(x - TUBE_WIDTH / 2, y, TUBE_WIDTH, 214, 14);
+    g.lineStyle(3, UI_TUBE_SLOT_BORDER, 0.9);
+    g.strokeRoundedRect(x - TUBE_WIDTH / 2, y, TUBE_WIDTH, 214, 14);
+
+    const holeRadius = CONVEYOR_MARBLE_RADIUS * 0.42;
+
+    lane.queue.slice(0, 4).forEach((mmc, queueIndex) => {
+      const py = y + 24 + queueIndex * 44;
+      const isActive = queueIndex === 0;
+      g.fillStyle(MARBLE_COLORS[mmc.color], isActive ? 1 : 0.42);
+      g.fillRoundedRect(x - 22, py - 16, 44, 32, 8);
+      g.lineStyle(2, 0xffffff, isActive ? 0.95 : 0.45);
+      g.strokeRoundedRect(x - 22, py - 16, 44, 32, 8);
+
+      if (isActive) {
+        for (let j = 0; j < MMC_CAPACITY; j++) {
+          const p = this.mmcMarblePos(i, j);
+          g.fillStyle(0xd1ecee, 1);
+          g.fillCircle(p.x, p.y, holeRadius);
+          g.lineStyle(1, 0x2c5c5e, 0.28);
+          g.strokeCircle(p.x, p.y, holeRadius);
+        }
+      }
+    });
+
+    const countText = this.add
+      .text(x, y + 228, `${lane.shipped}`, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "13px",
+        color: "#ffffff",
+        stroke: "#5e2e91",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setName(`laneCount-${i}`);
+    container.add(countText);
+  }
+
+  private laneX(i: number): number {
+    const n = Math.max(1, this.state.lanes?.length ?? 1);
     const totalW = n * TUBE_WIDTH + (n - 1) * TUBE_GAP;
-    const startX = (GAME_WIDTH - totalW) / 2;
-    const tube = this.state.tubes[tubeIdx];
-    const tubeBodyH = tube.capacity * TUBE_MARBLE_DIAMETER + TUBE_PADDING * 2;
-    const baseY =
-      this.tubesY +
-      12 +
-      TUBE_CAP_HEIGHT +
-      tubeBodyH -
-      TUBE_PADDING -
-      TUBE_MARBLE_DIAMETER / 2;
+    const startX = (GAME_WIDTH - totalW) / 2 + TUBE_WIDTH / 2;
+    return startX + i * (TUBE_WIDTH + TUBE_GAP);
+  }
+
+  private laneSlotIndex(i: number): number {
+    const laneX = this.laneX(i);
+    const bottomY = this.conveyorY + CONVEYOR_HEIGHT / 2;
+    let bestSlot = 0;
+    let bestDist = Infinity;
+
+    for (let slot = 0; slot < this.state.conveyor.length; slot++) {
+      const p = this.conveyorSlotPos(slot);
+      if (p.y < bottomY) continue;
+
+      const dist = Math.abs(p.x - laneX);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestSlot = slot;
+      }
+    }
+
+    return bestSlot;
+  }
+
+  private mmcMarblePos(laneIdx: number, j: number): { x: number; y: number } {
+    const holePadding = 7;
+    const mmcWidth = 44;
+    const availableWidth = mmcWidth - holePadding * 2;
+    const step = availableWidth / Math.max(1, MMC_CAPACITY - 1);
     return {
-      x: startX + tubeIdx * (TUBE_WIDTH + TUBE_GAP) + TUBE_WIDTH / 2,
-      y: baseY - j * TUBE_MARBLE_DIAMETER,
+      x: this.laneX(laneIdx) - mmcWidth / 2 + holePadding + j * step,
+      y: this.lanesY + 24,
     };
   }
 
-  private updateTubeCount(i: number): void {
-    const t = this.state.tubes[i];
-    const txt = this.children.getByName(`tubeCount-${i}`) as
-      | Phaser.GameObjects.Text
-      | null;
-    if (txt) txt.setText(`${t.marbles.length}/${t.capacity}`);
+  private animateMMCExit(ship: ShipEvent): void {
+    const laneX = this.laneX(ship.laneIndex);
+    const shellY = this.lanesY + 24;
+    const side = this.mmcExitSide(laneX);
+    const exitX = side === "left" ? -70 : GAME_WIDTH + 70;
+    const depth = ++this.mmcExitDepth;
+
+    const shell = this.add.container(laneX, shellY).setDepth(depth);
+    const g = this.add.graphics();
+    g.fillStyle(MARBLE_COLORS[ship.color], 1);
+    g.fillRoundedRect(-22, -16, 44, 32, 8);
+    g.lineStyle(2, 0xffffff, 0.95);
+    g.strokeRoundedRect(-22, -16, 44, 32, 8);
+    shell.add(g);
+
+    this.shippingLaneIds.delete(ship.laneIndex);
+    this.drawMMCLane(ship.laneIndex);
+
+    this.tweens.add({
+      targets: shell,
+      x: exitX,
+      duration: 460,
+      ease: "Cubic.inOut",
+      onComplete: () => shell.destroy(),
+    });
+
+    const deltaX = exitX - laneX;
+    ship.marbles.forEach((m) => {
+      const spr = this.marbleSprites.get(m.id);
+      if (!spr) return;
+
+      spr.container.setDepth(depth + 1);
+      this.tweens.killTweensOf(spr.container);
+      this.tweens.add({
+        targets: spr.container,
+        x: spr.container.x + deltaX,
+        duration: 460,
+        ease: "Cubic.inOut",
+        onComplete: () => this.destroyMarbleSprite(m.id),
+      });
+    });
+  }
+
+  private mmcExitSide(x: number): "left" | "right" {
+    const center = GAME_WIDTH / 2;
+    if (Math.abs(x - center) < 1) {
+      return Phaser.Math.Between(0, 1) === 0 ? "left" : "right";
+    }
+    return x < center ? "left" : "right";
   }
 
   // ─────────────────────────── MARBLE SPRITES ───────────────────────────
@@ -649,12 +723,13 @@ export class GameScene extends Phaser.Scene {
       const p = this.conveyorSlotPos(i);
       this.spawnMarbleSprite(m, p.x, p.y);
     });
-    this.state.tubes.forEach((t, i) => {
-      t.marbles.forEach((m, j) => {
-        const p = this.tubeMarblePos(i, j);
+    this.state.lanes?.forEach((lane, i) => {
+      const mmc = lane.queue[0];
+      mmc?.marbles.forEach((m, j) => {
+        const p = this.mmcMarblePos(i, j);
         this.spawnMarbleSprite(m, p.x, p.y);
       });
-      this.updateTubeCount(i);
+      this.drawMMCLane(i);
     });
 
     this.statusText.setText("");
@@ -685,7 +760,7 @@ export class GameScene extends Phaser.Scene {
     // Snapshot conveyor's previous marbles by id → previous slot index
     const prevConveyor = this.state.conveyor.slice();
 
-    const result = tick(this.state);
+    const result = tick(this.state, (laneIdx) => this.laneSlotIndex(laneIdx));
 
     // 1. Animate conveyor shift: every marble that survived advances to its
     //    next logical slot on the oval path.
@@ -737,40 +812,51 @@ export class GameScene extends Phaser.Scene {
       });
     });
 
-    // 4. The emitted marble: route into target tube (or game over).
+    result.pickups.forEach((pickup) => {
+      const spr = this.marbleSprites.get(pickup.marble.id);
+      const target = this.mmcMarblePos(pickup.laneIndex, pickup.holeIndex);
+
+      if (spr) {
+        this.tweens.killTweensOf(spr.container);
+        this.tweens.add({
+          targets: spr.container,
+          x: target.x,
+          y: target.y,
+          duration: 220,
+          ease: "Cubic.out",
+          onComplete: () => {
+            if (!this.shippingLaneIds.has(pickup.laneIndex)) {
+              this.drawMMCLane(pickup.laneIndex);
+            }
+          },
+        });
+      } else {
+        this.drawMMCLane(pickup.laneIndex);
+      }
+    });
+
+    result.shipped.forEach((ship) => {
+      this.shippingLaneIds.add(ship.laneIndex);
+      this.time.delayedCall(240, () => {
+        this.animateMMCExit(ship);
+      });
+    });
+
+    // 4. A marble that reaches the conveyor exit was not taken by an MMC.
     if (result.emitted) {
       const spr = this.marbleSprites.get(result.emitted.id);
-      if (result.routed?.ok) {
-        const tubeIdx = result.routed.tubeIndex;
-        const j = this.state.tubes[tubeIdx].marbles.length - 1;
-        const target = this.tubeMarblePos(tubeIdx, j);
-        if (spr) {
-          this.tweens.killTweensOf(spr.container);
-          // Drop arc: first move horizontally, then plop down.
-          this.tweens.add({
-            targets: spr.container,
-            x: target.x,
-            y: target.y,
-            duration: 360,
-            ease: "Bounce.out",
-          });
-        }
-        this.updateTubeCount(tubeIdx);
-      } else {
-        // Routing failed — animate marble dropping away from the sorting exit.
-        // GameOver scene.
-        if (spr) {
-          this.tweens.add({
-            targets: spr.container,
-            x: spr.container.x + 60,
-            y: spr.container.y + 200,
-            alpha: 0,
-            angle: 90,
-            duration: 600,
-            ease: "Cubic.in",
-          });
-        }
+      if (spr) {
+        this.tweens.add({
+          targets: spr.container,
+          x: spr.container.x + 60,
+          y: spr.container.y + 200,
+          alpha: 0,
+          angle: 90,
+          duration: 600,
+          ease: "Cubic.in",
+        });
       }
+        // Routing failed — animate marble dropping away from the sorting exit.
     }
 
     // 5. Status transitions

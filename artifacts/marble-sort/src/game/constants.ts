@@ -20,12 +20,16 @@ export const CONVEYOR_MARBLE_RADIUS = 14;
 export const CONVEYOR_DROP_RADIUS = 18;
 
 // Tube visuals (stacked-pill rack design)
-export const TUBE_WIDTH = 60;
-export const TUBE_GAP = 12;
+export const TUBE_WIDTH = 125;
+export const TUBE_GAP = 0;
 export const TUBE_SLOT_HEIGHT = 28; // height of one pill slot
 export const TUBE_SLOT_GAP = 2; // vertical spacing between pill slots
 export const TUBE_RACK_PADDING = 12; // inner padding of the rack panel
 export const TUBE_TOP_PADDING = 14;
+export const MMC_WIDTH_PADDING = 8; // total horizontal inset of MMC inside tube (4px each side)
+export const MMC_HEIGHT = 46; // height of one MMC pill
+export const MMC_QUEUE_GAP = 0; // vertical gap between stacked MMCs
+export const MMC_HOLE_RADIUS = 8; // radius of each marble hole in the active MMC
 
 // Animation
 export const MARBLE_ANIM_MS = 220;

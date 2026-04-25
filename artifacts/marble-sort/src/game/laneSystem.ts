@@ -57,6 +57,13 @@ export function buildLanesFromTubes(
     }
   });
 
+  // Shuffle MMCs so lanes receive random color mixes (win still guaranteed
+  // because every MMC is still present — just distributed differently).
+  for (let i = mmcs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [mmcs[i], mmcs[j]] = [mmcs[j], mmcs[i]];
+  }
+
   mmcs.forEach((mmc, i) => {
     lanes[i % laneCount].queue.push(mmc);
   });

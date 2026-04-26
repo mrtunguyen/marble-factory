@@ -31,25 +31,32 @@ export function drawTile(
   g.fillStyle(0x000000, 0.18);
   g.fillRoundedRect(-half + 2, -half + 5, size, size, r);
 
+  const isDisabled = tile.kind === "mystery" && !tile.enabled;
   const isHidden = tile.kind === "mystery" && !tile.revealed;
   const isLocked = tile.kind === "locked" && !tile.unlocked;
 
   // Resolve render colors
-  const color = isHidden
-    ? 0x9e9e9e
-    : isLocked
-      ? 0x7a6a99
-      : MARBLE_COLORS[tile.color];
-  const colorDark = isHidden
-    ? 0x6e6e6e
-    : isLocked
-      ? 0x4f4373
-      : MARBLE_COLORS_DARK[tile.color];
-  const colorLight = isHidden
-    ? 0xc4c4c4
-    : isLocked
-      ? 0xa192c4
-      : MARBLE_COLORS_LIGHT[tile.color];
+  const color = isDisabled
+    ? 0x666666
+    : isHidden
+      ? 0x9e9e9e
+      : isLocked
+        ? 0x7a6a99
+        : MARBLE_COLORS[tile.color];
+  const colorDark = isDisabled
+    ? 0x4a4a4a
+    : isHidden
+      ? 0x6e6e6e
+      : isLocked
+        ? 0x4f4373
+        : MARBLE_COLORS_DARK[tile.color];
+  const colorLight = isDisabled
+    ? 0x888888
+    : isHidden
+      ? 0xc4c4c4
+      : isLocked
+        ? 0xa192c4
+        : MARBLE_COLORS_LIGHT[tile.color];
 
   // Main body
   g.fillStyle(color, 1);

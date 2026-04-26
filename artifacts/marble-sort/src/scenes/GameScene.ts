@@ -44,7 +44,7 @@ import {
   tick,
 } from "../game/state";
 import { tapTile } from "../game/gridManager";
-import type { GameState, GridTile, LevelDef, Marble } from "../game/types";
+import type { GameState, GridTile, LevelDef, Marble, MarbleSize } from "../game/types";
 import type { ShipEvent } from "../game/laneSystem";
 
 interface TileSprite {
@@ -669,8 +669,9 @@ export class GameScene extends Phaser.Scene {
 
         // Draw holes in the active MMC container
         for (let j = 0; j < MMC_CAPACITY; j++) {
-          const p = this.mmcMarblePos(i, j);
           const hole = mmc.holes[j];
+          const allSizes = mmc.holes.map(h => h?.size || "medium");
+          const p = this.mmcMarblePos(i, j, hole?.size, allSizes, queueIndex);
           if (!hole) continue;
           if (hole.marble) {
             mmcG.lineStyle(1, 0x2c5c5e, 0.18);
@@ -717,26 +718,7 @@ export class GameScene extends Phaser.Scene {
           container.add(questionMark);
         }
 
-        // Draw holes in inactive MMCs
-        for (let j = 0; j < MMC_CAPACITY; j++) {
-          const p = this.mmcMarblePos(i, j);
-          const hole = mmc.holes[j];
-          if (!hole) continue;
-          if (hole.marble) {
-            g.lineStyle(1, 0x2c5c5e, 0.18);
-            g.strokeCircle(
-              p.x,
-              p.y,
-              holeRadius * MARBLE_SIZE_SCALE[hole.size],
-            );
-          } else {
-            const holeG = this.add.graphics();
-            holeG.x = p.x;
-            holeG.y = p.y;
-            drawHole(holeG, holeRadius, hole);
-            container.add(holeG);
-          }
-        }
+        // Don't draw holes for inactive MMCs (they're queued, not active)
       }
     });
 
@@ -787,14 +769,48 @@ export class GameScene extends Phaser.Scene {
     return bestSlot;
   }
 
-  private mmcMarblePos(laneIdx: number, j: number): { x: number; y: number } {
-    const holePadding = 10;
+  private mmcMarblePos(laneIdx: number, j: number, size?: MarbleSize, allSizes?: MarbleSize[], queueIndex: number = 0): { x: number; y: number } {
+    const holeRadius = MMC_HOLE_RADIUS;
+    const gap = 4; // gap between holes
+
+    // If we have all hole sizes, calculate their positions to avoid overlap
+    if (allSizes && allSizes.length === MMC_CAPACITY) {
+      // Calculate total width needed for all holes
+      let totalWidth = 0;
+      for (let i = 0; i < allSizes.length; i++) {
+        const scale = MARBLE_SIZE_SCALE[allSizes[i]];
+        totalWidth += scale * holeRadius * 2;
+        if (i < allSizes.length - 1) totalWidth += gap;
+      }
+
+      // Start from left edge, centered
+      let x = this.laneX(laneIdx) - totalWidth / 2;
+
+      // Add up widths of holes before this one
+      for (let i = 0; i < j; i++) {
+        const scale = MARBLE_SIZE_SCALE[allSizes[i]];
+        x += scale * holeRadius * 2 + gap;
+      }
+
+      // Position at center of current hole
+      const currentScale = MARBLE_SIZE_SCALE[allSizes[j]];
+      x += currentScale * holeRadius;
+
+      const py = this.lanesY + 24 + queueIndex * (MMC_HEIGHT + MMC_QUEUE_GAP);
+      return {
+        x,
+        y: py,
+      };
+    }
+
+    // Fallback to simple even spacing if we don't have sizes
     const mmcWidth = TUBE_WIDTH - MMC_WIDTH_PADDING;
-    const availableWidth = mmcWidth - holePadding * 2;
+    const availableWidth = mmcWidth - 10;
     const step = availableWidth / Math.max(1, MMC_CAPACITY - 1);
+    const py = this.lanesY + 24 + queueIndex * (MMC_HEIGHT + MMC_QUEUE_GAP);
     return {
-      x: this.laneX(laneIdx) - mmcWidth / 2 + holePadding + j * step,
-      y: this.lanesY + 24,
+      x: this.laneX(laneIdx) - mmcWidth / 2 + 5 + j * step,
+      y: py,
     };
   }
 
@@ -1188,7 +1204,8 @@ export class GameScene extends Phaser.Scene {
       const mmc = lane.queue[0];
       mmc?.holes.forEach((h, j) => {
         if (!h.marble) return;
-        const p = this.mmcMarblePos(i, j);
+        const allSizes = mmc.holes.map(hole => hole?.size || "medium");
+        const p = this.mmcMarblePos(i, j, h.size, allSizes, 0);
         const scale = baseHoleScale * MARBLE_SIZE_SCALE[h.size];
         const spr = this.spawnMarbleSprite(
           h.marble,
@@ -1289,7 +1306,10 @@ export class GameScene extends Phaser.Scene {
     const baseHoleScale = MMC_HOLE_RADIUS / CONVEYOR_MARBLE_RADIUS;
     result.pickups.forEach((pickup) => {
       const spr = this.marbleSprites.get(pickup.marble.id);
-      const target = this.mmcMarblePos(pickup.laneIndex, pickup.holeIndex);
+      const lane = this.state.lanes?.[pickup.laneIndex];
+      const mmc = lane?.queue[0];
+      const allSizes = mmc?.holes.map(h => h?.size || "medium") || [];
+      const target = this.mmcMarblePos(pickup.laneIndex, pickup.holeIndex, pickup.marble.size, allSizes, 0);
       const targetScale = baseHoleScale * MARBLE_SIZE_SCALE[pickup.marble.size];
 
       this.sound.play("pop-sound");

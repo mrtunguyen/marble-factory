@@ -7,7 +7,7 @@ import type {
   Marble,
   Tube,
 } from "./types";
-import { refreshLocks, isGridEmpty } from "./gridManager";
+import { refreshLocks, refreshMysteryTiles, isGridEmpty } from "./gridManager";
 import { injectFromQueue } from "./movementSystem";
 import { tickConveyor, isConveyorEmpty } from "./conveyorSystem";
 import { MAX_CONVEYOR_CAPACITY } from "./constants";
@@ -44,6 +44,7 @@ export function buildGameState(def: LevelDef): GameState {
         counter: lt.kind === "counter" ? (lt.counter ?? 2) : undefined,
         revealed: lt.kind === "mystery" ? false : undefined,
         unlocked: lt.kind === "locked" ? false : undefined,
+        enabled: lt.kind === "mystery" ? false : undefined,
       };
       row.push(t);
     }
@@ -97,6 +98,7 @@ export function buildGameState(def: LevelDef): GameState {
     history: [],
   };
   refreshLocks(state);
+  refreshMysteryTiles(state);
   revealHiddenMMCs(state);
   return state;
 }
@@ -157,6 +159,7 @@ export function restoreSnapshot(
   state.nextMarbleId = snap.nextMarbleId;
   state.status = "playing";
   refreshLocks(state);
+  refreshMysteryTiles(state);
 }
 
 /** Result of one simulation tick. The renderer uses these events to animate

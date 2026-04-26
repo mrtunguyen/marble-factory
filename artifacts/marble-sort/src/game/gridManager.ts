@@ -52,6 +52,20 @@ export function locksSatisfied(
   );
 }
 
+/** Check if any of the 4-neighbors of a mystery tile is empty (has been consumed). */
+function hasEmptyNeighbor(
+  state: GameState,
+  r: number,
+  c: number,
+): boolean {
+  return (
+    isEmpty(state, r - 1, c) ||
+    isEmpty(state, r + 1, c) ||
+    isEmpty(state, r, c - 1) ||
+    isEmpty(state, r, c + 1)
+  );
+}
+
 /** Walk the grid and flip `unlocked` flags for any locked tile whose neighbor
  *  has been emptied. Idempotent — safe to call after every grid mutation. */
 export function refreshLocks(state: GameState): void {
@@ -60,6 +74,19 @@ export function refreshLocks(state: GameState): void {
       const t = state.tiles[r][c];
       if (t && t.kind === "locked" && !t.unlocked && locksSatisfied(state, r, c)) {
         t.unlocked = true;
+      }
+    }
+  }
+}
+
+/** Enable any mystery tiles whose neighbor has been tapped (emptied).
+ *  Idempotent — safe to call after every grid mutation. */
+export function refreshMysteryTiles(state: GameState): void {
+  for (let r = 0; r < state.rows; r++) {
+    for (let c = 0; c < state.cols; c++) {
+      const t = state.tiles[r][c];
+      if (t && t.kind === "mystery" && !t.enabled && hasEmptyNeighbor(state, r, c)) {
+        t.enabled = true;
       }
     }
   }
@@ -88,7 +115,12 @@ export function tapTile(
     return { kind: "revealed", releasedCount: 0, released: [], tile };
   }
 
-  // Mystery: first tap reveals.
+  // Mystery: must be enabled first (when a neighbor is tapped).
+  if (tile.kind === "mystery" && !tile.enabled) {
+    return { kind: "noop", releasedCount: 0, released: [], tile };
+  }
+
+  // Mystery: once enabled, first tap reveals.
   if (tile.kind === "mystery" && !tile.revealed) {
     tile.revealed = true;
     return { kind: "revealed", releasedCount: 0, released: [], tile };
@@ -116,6 +148,7 @@ function releaseAllMarbles(
   if (tile.marblesLeft <= 0) {
     state.tiles[r][c] = null;
     refreshLocks(state);
+    refreshMysteryTiles(state);
     return { kind: "noop", releasedCount: 0, released: [], tile: null };
   }
   const count = tile.marblesLeft;
@@ -132,6 +165,7 @@ function releaseAllMarbles(
   tile.marblesLeft = 0;
   state.tiles[r][c] = null;
   refreshLocks(state);
+  refreshMysteryTiles(state);
   return { kind: "released", releasedCount: count, released, tile: null };
 }
 

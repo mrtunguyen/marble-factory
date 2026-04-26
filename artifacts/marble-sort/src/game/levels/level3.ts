@@ -46,7 +46,7 @@ export const LEVEL_3: LevelDef = {
   tickMs: DEFAULT_TICK_MS,
   tiles: [
     [B("red"), B("blue"), B("green")],
-    [M("blue"), B("green"), B("red")],
+    [{ kind: "locked", color: "blue" }, B("green"), B("red")],
   ],
   tubes: [
     { color: "red", capacity: 6, mmcs: redMMCs },

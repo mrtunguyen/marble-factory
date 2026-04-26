@@ -33,6 +33,7 @@ export interface GridTile {
   counter?: number;         // remaining taps for counter tiles
   revealed?: boolean;       // mystery tile has been revealed
   unlocked?: boolean;       // locked tile has been unlocked
+  enabled?: boolean;        // mystery tile is enabled (false = disabled until neighbor tapped)
 }
 
 export interface HoleSpec {

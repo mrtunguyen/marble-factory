@@ -7,8 +7,21 @@
 // 18 MMCs of 3 holes each (6 per lane). Hole multiset equals the tile supply
 // exactly (9 of each (color, size)), so the level is always winnable.
 import { DEFAULT_CONVEYOR_CAPACITY, DEFAULT_TICK_MS } from "../constants";
-import type { LevelDef } from "../types";
+import type { LevelDef, MarbleColor } from "../types";
 import { Bs } from "./helpers";
+
+// Shuffle each row independently so tile positions vary each page load while
+// each color still appears exactly once per row (accounting stays balanced).
+const shuffle = <T>(arr: T[]): T[] => {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+const ALL_COLORS: MarbleColor[] = ["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"];
+const COLORS = shuffle(ALL_COLORS).slice(0, 3);
 
 export const LEVEL_4: LevelDef = {
   id: 4,
@@ -18,14 +31,10 @@ export const LEVEL_4: LevelDef = {
   conveyorCapacity: DEFAULT_CONVEYOR_CAPACITY,
   tickMs: DEFAULT_TICK_MS,
   tiles: [
-    [Bs("red", "small"),  Bs("blue", "small"),  Bs("green", "small")],
-    [Bs("red", "large"),  Bs("blue", "large"),  Bs("green", "large")],
+    shuffle(COLORS).map(c => Bs(c, "small")),
+    shuffle(COLORS).map(c => Bs(c, "large")),
   ],
-  tubes: [
-    { color: "red",   capacity: 18 },
-    { color: "blue",  capacity: 18 },
-    { color: "green", capacity: 18 },
-  ],
+  tubes: COLORS.map(c => ({ color: c, capacity: 18 })),
   randomMmcLayout: true,
   useTileSizeScale: true,
   parTimeSec: 60,

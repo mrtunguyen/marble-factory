@@ -116,6 +116,11 @@ export class GameScene extends Phaser.Scene {
     this.startedAt = 0;
   }
 
+  preload(): void {
+    this.load.audio("pop-sound", "assets/sounds/pop sound.ogg");
+    this.load.audio("level-completed", "assets/sounds/level completed sound.mp3");
+  }
+
   create(): void {
     this.startedAt = this.time.now;
 
@@ -970,6 +975,8 @@ export class GameScene extends Phaser.Scene {
       const target = this.mmcMarblePos(pickup.laneIndex, pickup.holeIndex);
       const targetScale = baseHoleScale * MARBLE_SIZE_SCALE[pickup.marble.size];
 
+      this.sound.play("pop-sound");
+
       if (spr) {
         this.tweens.killTweensOf(spr.container);
         this.tweens.add({
@@ -1005,6 +1012,7 @@ export class GameScene extends Phaser.Scene {
     if (result.statusChanged) {
       this.time.delayedCall(700, () => {
         if (this.state.status === "won") {
+          this.sound.play("level-completed");
           const timeSec = (this.time.now - this.startedAt) / 1000;
           const par = {
             time: this.level.parTimeSec ?? 30,

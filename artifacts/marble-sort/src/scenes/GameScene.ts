@@ -10,6 +10,8 @@ import {
   TUBE_WIDTH,
   TUBE_GAP,
   MARBLE_COLORS,
+  MARBLE_SIZE_SCALE,
+  TILE_SIZE_SCALE,
   SCENE_MENU,
   SCENE_GAMEOVER,
   SCENE_CONQUEST,
@@ -34,7 +36,7 @@ import {
 import { LEVELS } from "../game/levels";
 import { markCompleted, unlockLevel, recordRun } from "../game/progression";
 import { computeScore } from "../game/score";
-import { drawTile, drawMarble, drawConveyorPipe } from "../game/draw";
+import { drawTile, drawMarble, drawConveyorPipe, drawHole } from "../game/draw";
 import {
   buildGameState,
   snapshot,
@@ -392,7 +394,8 @@ export class GameScene extends Phaser.Scene {
     const { x, y } = this.tilePos(r, c);
     const container = this.add.container(x, y);
     const graphics = this.add.graphics();
-    drawTile(graphics, TILE_SIZE, tile, this.state.marblesPerBlock);
+    const tileScale = this.level.useTileSizeScale ? TILE_SIZE_SCALE[tile.size] : 1;
+    drawTile(graphics, TILE_SIZE, tile, this.state.marblesPerBlock, tileScale);
     container.add(graphics);
 
     let text: Phaser.GameObjects.Text | undefined;
@@ -547,7 +550,8 @@ export class GameScene extends Phaser.Scene {
     lane.queue.slice(0, 4).forEach((mmc, queueIndex) => {
       const py = y + 24 + queueIndex * (mmcH + MMC_QUEUE_GAP);
       const isActive = queueIndex === 0;
-      g.fillStyle(MARBLE_COLORS[mmc.color], isActive ? 1 : 0.42);
+      const shellColor = mmc.holes[0]?.color ?? "red";
+      g.fillStyle(MARBLE_COLORS[shellColor], isActive ? 1 : 0.42);
       g.fillRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
       g.lineStyle(2, 0xffffff, isActive ? 0.95 : 0.45);
       g.strokeRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
@@ -555,14 +559,25 @@ export class GameScene extends Phaser.Scene {
       if (isActive) {
         for (let j = 0; j < MMC_CAPACITY; j++) {
           const p = this.mmcMarblePos(i, j);
-          g.fillStyle(0xd1ecee, 1);
-          g.fillCircle(p.x, p.y, holeRadius);
-          g.lineStyle(1, 0x2c5c5e, 0.28);
-          g.strokeCircle(p.x, p.y, holeRadius);
+          const hole = mmc.holes[j];
+          if (!hole) continue;
+          if (hole.marble) {
+            g.lineStyle(1, 0x2c5c5e, 0.18);
+            g.strokeCircle(
+              p.x,
+              p.y,
+              holeRadius * MARBLE_SIZE_SCALE[hole.size],
+            );
+          } else {
+            const holeG = this.add.graphics();
+            holeG.x = p.x;
+            holeG.y = p.y;
+            drawHole(holeG, holeRadius, hole);
+            container.add(holeG);
+          }
         }
       }
     });
-
   }
 
   private laneX(i: number): number {
@@ -657,8 +672,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ─────────────────────────── MARBLE SPRITES ───────────────────────────
-
-  private static readonly MARBLE_SCALES = [1.0, 1.0, 1.0];
 
   private spawnMarbleSprite(
     marble: Marble,
@@ -785,7 +798,7 @@ export class GameScene extends Phaser.Scene {
 
       for (let k = 0; k < newCount; k++) {
         const m = this.state.pendingEject[before + k];
-        const targetScale = GameScene.MARBLE_SCALES[k % 3];
+        const targetScale = MARBLE_SIZE_SCALE[m.size];
         const physicsRadius = CONVEYOR_MARBLE_RADIUS * targetScale;
         const offsetX = (k % 3 - 1) * (CONVEYOR_MARBLE_RADIUS * 0.6);
         const spr = this.spawnMarbleSprite(m, tilePos.x + offsetX, tilePos.y, true, physicsRadius, 0);
@@ -834,11 +847,11 @@ export class GameScene extends Phaser.Scene {
     this.state.pendingEject.forEach((m, idx) => {
       const col = idx % 4;
       const row = Math.floor(idx / 4);
-      const targetScale = GameScene.MARBLE_SCALES[idx % 3];
+      const targetScale = MARBLE_SIZE_SCALE[m.size];
       const physicsRadius = CONVEYOR_MARBLE_RADIUS * targetScale;
       const x = GAME_WIDTH / 2 + (col - 1.5) * (CONVEYOR_MARBLE_RADIUS * 2 + 4);
       const y = this.funnelPanelBottom - 80 - row * (CONVEYOR_MARBLE_RADIUS * 2 + 4);
-      const spr = this.spawnMarbleSprite(m, x, y, true, physicsRadius, targetScale);
+      this.spawnMarbleSprite(m, x, y, true, physicsRadius, targetScale);
       this.marbleScales.set(m.id, targetScale);
     });
     this.state.conveyor.forEach((m, i) => {
@@ -848,13 +861,22 @@ export class GameScene extends Phaser.Scene {
       const spr = this.spawnMarbleSprite(m, p.x, p.y, false, CONVEYOR_MARBLE_RADIUS, scale);
       spr.scale = scale;
     });
-    const holeScale = MMC_HOLE_RADIUS / CONVEYOR_MARBLE_RADIUS;
+    const baseHoleScale = MMC_HOLE_RADIUS / CONVEYOR_MARBLE_RADIUS;
     this.state.lanes?.forEach((lane, i) => {
       const mmc = lane.queue[0];
-      mmc?.marbles.forEach((m, j) => {
+      mmc?.holes.forEach((h, j) => {
+        if (!h.marble) return;
         const p = this.mmcMarblePos(i, j);
-        const spr = this.spawnMarbleSprite(m, p.x, p.y, false, CONVEYOR_MARBLE_RADIUS, holeScale);
-        spr.scale = holeScale;
+        const scale = baseHoleScale * MARBLE_SIZE_SCALE[h.size];
+        const spr = this.spawnMarbleSprite(
+          h.marble,
+          p.x,
+          p.y,
+          false,
+          CONVEYOR_MARBLE_RADIUS,
+          scale,
+        );
+        spr.scale = scale;
       });
       this.drawMMCLane(i);
     });
@@ -942,10 +964,11 @@ export class GameScene extends Phaser.Scene {
 
     // Step 3 (re-position pending queue sprites) removed — physics handles positioning.
 
-    const holeScale = MMC_HOLE_RADIUS / CONVEYOR_MARBLE_RADIUS;
+    const baseHoleScale = MMC_HOLE_RADIUS / CONVEYOR_MARBLE_RADIUS;
     result.pickups.forEach((pickup) => {
       const spr = this.marbleSprites.get(pickup.marble.id);
       const target = this.mmcMarblePos(pickup.laneIndex, pickup.holeIndex);
+      const targetScale = baseHoleScale * MARBLE_SIZE_SCALE[pickup.marble.size];
 
       if (spr) {
         this.tweens.killTweensOf(spr.container);
@@ -953,10 +976,11 @@ export class GameScene extends Phaser.Scene {
           targets: spr.container,
           x: target.x,
           y: target.y,
-          scale: holeScale,
+          scale: targetScale,
           duration: 220,
           ease: "Cubic.out",
           onComplete: () => {
+            spr.scale = targetScale;
             if (!this.shippingLaneIds.has(pickup.laneIndex)) {
               this.drawMMCLane(pickup.laneIndex);
             }

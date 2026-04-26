@@ -8,7 +8,7 @@
 // No Phaser imports. All functions mutate the GameState in place and the caller
 // is responsible for snapshotting before mutation if undo is needed.
 
-import type { GameState, GridTile, Marble } from "./types";
+import type { GameState, GridTile } from "./types";
 
 /** Result of attempting to tap a grid tile. */
 export interface TapOutcome {
@@ -109,6 +109,7 @@ function releaseAllMarbles(
     state.pendingEject.push({
       id: state.nextMarbleId++,
       color: tile.color,
+      size: tile.size,
     });
   }
   tile.marblesLeft = 0;

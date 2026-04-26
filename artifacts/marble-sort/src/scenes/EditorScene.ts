@@ -169,6 +169,7 @@ export class EditorScene extends Phaser.Scene {
     const gridTile: GridTile = {
       kind: tile.kind,
       color: tile.color,
+      size: "medium",
       marblesLeft: DEFAULT_MARBLES_PER_BLOCK,
       counter: tile.counter,
       revealed: tile.kind === "mystery" ? false : undefined,

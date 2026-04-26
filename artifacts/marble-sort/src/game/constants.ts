@@ -1,5 +1,5 @@
 // Visual & layout constants for Marble Factory
-import type { MarbleColor } from "./types";
+import type { MarbleColor, MarbleSize } from "./types";
 
 // Game canvas
 export const GAME_WIDTH = 540;
@@ -42,6 +42,22 @@ export const DEFAULT_CONVEYOR_CAPACITY = MAX_CONVEYOR_CAPACITY;
 export const DEFAULT_TICK_MS = 250;
 export const DEFAULT_TUBE_CAPACITY = 6;
 export const MMC_CAPACITY = 3;
+
+// Visual scale per marble size — used by drawMarble/drawHole and tween targets.
+export const MARBLE_SIZE_SCALE: Record<MarbleSize, number> = {
+  small: 0.7,
+  medium: 1.0,
+  large: 1.3,
+};
+
+// Visual scale per TILE size — only used when LevelDef.useTileSizeScale is on
+// (currently level 4 only). Capped at 1.0 so large tiles fit the existing
+// TILE_SIZE cell without enlarging the grid layout.
+export const TILE_SIZE_SCALE: Record<MarbleSize, number> = {
+  small: 0.65,
+  medium: 0.85,
+  large: 1.0,
+};
 
 // Marble colors — bright candy palette
 export const MARBLE_COLORS: Record<MarbleColor, number> = {

@@ -71,6 +71,7 @@ export function buildGameState(def: LevelDef): GameState {
       marblesPerBlock,
       def.tubes.length,
       tubeColors,
+      def.holeSupply,
     );
     tubeSpecs = def.tubes.map((t, i) => ({
       ...t,

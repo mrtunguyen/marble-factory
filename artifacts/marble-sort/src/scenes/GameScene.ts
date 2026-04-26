@@ -91,6 +91,15 @@ export class GameScene extends Phaser.Scene {
   private startedAt = 0;
   private tapCount = 0;
 
+  // Merge-zone state (only used when level.mergeZone is true).
+  // pendingInFlight: spawned at the tile, still falling through the grid area.
+  //   NOT eligible to merge yet — prevents collisions at spawn time from merging.
+  // inFlight: in the bowl (passed the merge-entry sensor), eligible to merge.
+  // exitedIds: ids that already crossed the merge-exit sensor (debounce).
+  private pendingInFlight: Map<number, Marble> = new Map();
+  private inFlight: Map<number, Marble> = new Map();
+  private exitedIds: Set<number> = new Set();
+
   constructor() {
     super("GameScene");
   }
@@ -114,6 +123,9 @@ export class GameScene extends Phaser.Scene {
     this.mmcExitDepth = 20;
     this.tapCount = 0;
     this.startedAt = 0;
+    this.pendingInFlight = new Map();
+    this.inFlight = new Map();
+    this.exitedIds = new Set();
   }
 
   preload(): void {
@@ -136,13 +148,67 @@ export class GameScene extends Phaser.Scene {
     this.drawMMCLanes();
     this.createFunnelColliders();
 
-    // Collision events for marble bounces
+    // Collision events for marble bounces (and, on merge-zone levels,
+    // same-color merge detection + exit-sensor crossing).
     this.matter.world.on("collisionstart", (event: any) => {
       for (const pair of event.pairs) {
         const bodyA = pair.bodyA;
         const bodyB = pair.bodyB;
-        if (bodyA.label.startsWith("marble-") || bodyB.label.startsWith("marble-")) {
-          const marbleBody = bodyA.label.startsWith("marble-") ? bodyA : bodyB;
+        const aIsMarble = typeof bodyA.label === "string" && bodyA.label.startsWith("marble-");
+        const bIsMarble = typeof bodyB.label === "string" && bodyB.label.startsWith("marble-");
+
+        if (this.level.mergeZone) {
+          const labelA = bodyA.label as string;
+          const labelB = bodyB.label as string;
+
+          // Entry sensor: marble passed below the grid panel — now eligible to merge.
+          if (labelA === "merge-entry-sensor" || labelB === "merge-entry-sensor") {
+            const marbleBody = labelA === "merge-entry-sensor" ? bodyB : bodyA;
+            if (typeof marbleBody.label === "string" && marbleBody.label.startsWith("marble-")) {
+              const id = Number(marbleBody.label.slice(7));
+              const m = this.pendingInFlight.get(id);
+              if (m) {
+                this.pendingInFlight.delete(id);
+                this.inFlight.set(id, m);
+              }
+            }
+            continue;
+          }
+
+          // Merge-exit sensor: marble crossed the conveyor entry — hand it off
+          // to logical pendingEject and remove its physics body.
+          if (labelA === "merge-exit-sensor" || labelB === "merge-exit-sensor") {
+            const marbleBody = labelA === "merge-exit-sensor" ? bodyB : bodyA;
+            if (typeof marbleBody.label === "string" && marbleBody.label.startsWith("marble-")) {
+              this.handleMergeExit(marbleBody);
+            }
+            continue;
+          }
+
+          // Marble↔marble in the bowl: same-color smalls merge; cross-color sparkles.
+          // Only check marbles that are in inFlight (past the entry sensor).
+          if (aIsMarble && bIsMarble) {
+            const idA = Number(bodyA.label.slice(7));
+            const idB = Number(bodyB.label.slice(7));
+            const mA = this.inFlight.get(idA);
+            const mB = this.inFlight.get(idB);
+            if (mA && mB) {
+              if (mA.size === "small" && mB.size === "small" && mA.color === mB.color) {
+                this.mergeMarbles(bodyA, bodyB, mA, mB);
+                continue;
+              }
+              if (mA.color !== mB.color) {
+                const cx = (bodyA.position.x + bodyB.position.x) / 2;
+                const cy = (bodyA.position.y + bodyB.position.y) / 2;
+                this.spawnSparkle(cx, cy);
+              }
+            }
+          }
+        }
+
+        // Default: small upward bounce on any marble collision.
+        if (aIsMarble || bIsMarble) {
+          const marbleBody = aIsMarble ? bodyA : bodyB;
           const bounceForce = 0.015;
           (marbleBody as any).force = { x: 0, y: -bounceForce };
         }
@@ -364,8 +430,30 @@ export class GameScene extends Phaser.Scene {
     // Top cap
     this.matter.add.rectangle(cx, panelY - T / 2, pw + T * 2, T, { isStatic: true, label: "wall-top" });
 
-    // Barrier at conveyor top
-    this.matter.add.rectangle(cx, fbY -10, tw, T, { isStatic: true, label: "funnel-barrier" });
+    // Barrier at conveyor top. For merge-zone levels, this is a sensor instead
+    // of a wall — marbles physically pass through, and the collisionstart
+    // handler intercepts the crossing to push them onto pendingEject.
+    if (this.level.mergeZone) {
+      this.matter.add.rectangle(cx, fbY - 10, tw, T, {
+        isStatic: true,
+        isSensor: true,
+        label: "merge-exit-sensor",
+      });
+      // Entry sensor: once a marble crosses below the grid panel, it becomes
+      // eligible to merge. Prevents same-tile spawns from immediately merging
+      // at the tile position before reaching the bowl.
+      const entrySensorY = this.funnelPanelBottom + 10;
+      this.matter.add.rectangle(cx, entrySensorY, pw + T * 2, T, {
+        isStatic: true,
+        isSensor: true,
+        label: "merge-entry-sensor",
+      });
+    } else {
+      this.matter.add.rectangle(cx, fbY - 10, tw, T, {
+        isStatic: true,
+        label: "funnel-barrier",
+      });
+    }
 
     // Screen-edge guards
     this.matter.add.rectangle(-T / 2, GAME_HEIGHT / 2, T, GAME_HEIGHT, { isStatic: true, label: "bound-left" });
@@ -555,8 +643,8 @@ export class GameScene extends Phaser.Scene {
     lane.queue.slice(0, 4).forEach((mmc, queueIndex) => {
       const py = y + 24 + queueIndex * (mmcH + MMC_QUEUE_GAP);
       const isActive = queueIndex === 0;
-      const shellColor = mmc.holes[0]?.color ?? "red";
-      g.fillStyle(MARBLE_COLORS[shellColor], isActive ? 1 : 0.42);
+      const mmcColor = mmc.holes[0]?.color ?? "red";
+      g.fillStyle(MARBLE_COLORS[mmcColor], isActive ? 1 : 0.42);
       g.fillRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
       g.lineStyle(2, 0xffffff, isActive ? 0.95 : 0.45);
       g.strokeRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
@@ -695,10 +783,10 @@ export class GameScene extends Phaser.Scene {
     let physicsBody: MatterJS.BodyType | undefined;
     if (usePhysics) {
       physicsBody = this.matter.add.circle(x, y, physicsRadius, {
-        restitution: 0.15,
-        friction: 0.05,
-        frictionStatic: 0.08,
-        frictionAir: 0.005,
+        restitution: 0.85,
+        friction: 0.005,
+        frictionStatic: 0.005,
+        frictionAir: 0.002,
         label: `marble-${marble.id}`,
       }) as MatterJS.BodyType;
 
@@ -706,12 +794,6 @@ export class GameScene extends Phaser.Scene {
       const sizeRatio = physicsRadius / CONVEYOR_MARBLE_RADIUS;
       const downForce = 0.0008 * sizeRatio;
       (physicsBody as any).force = { x: 0, y: downForce };
-
-      // Small random horizontal velocity for visual separation
-      const randomVx = Phaser.Math.Between(-2, 2);
-      // Slight upward bounce on spawn
-      const bounceVy = -3;
-      (physicsBody as any).velocity = { x: randomVx, y: bounceVy };
     }
 
     const spr: MarbleSprite = { container: c, marble, physicsBody, scale };
@@ -744,8 +826,9 @@ export class GameScene extends Phaser.Scene {
 
     // Snapshot for undo BEFORE mutation.
     const snap = snapshot(this.state);
-    const before = this.state.pendingEject.length;
-    const outcome = tapTile(this.state, r, c);
+    const outcome = tapTile(this.state, r, c, {
+      deferEject: !!this.level.mergeZone,
+    });
 
     if (outcome.kind === "noop") {
       // Locked still locked, or empty — flash a wiggle.
@@ -777,7 +860,6 @@ export class GameScene extends Phaser.Scene {
     // If marbles were released, spawn with physics and pop-in animation.
     if (outcome.kind === "released" && outcome.releasedCount > 0) {
       const tilePos = this.tilePos(r, c);
-      const newCount = this.state.pendingEject.length - before;
 
       // Screen shake on release
       this.cameras.main.shake(150, 0.01);
@@ -801,13 +883,35 @@ export class GameScene extends Phaser.Scene {
         });
       }
 
-      for (let k = 0; k < newCount; k++) {
-        const m = this.state.pendingEject[before + k];
+      for (let k = 0; k < outcome.released.length; k++) {
+        const m = outcome.released[k];
         const targetScale = MARBLE_SIZE_SCALE[m.size];
         const physicsRadius = CONVEYOR_MARBLE_RADIUS * targetScale;
-        const offsetX = (k % 3 - 1) * (CONVEYOR_MARBLE_RADIUS * 0.6);
-        const spr = this.spawnMarbleSprite(m, tilePos.x + offsetX, tilePos.y, true, physicsRadius, 0);
+        // Spread marbles in a 3-column grid with enough spacing to avoid overlap.
+        const col = k % 3;
+        const row = Math.floor(k / 3);
+        const spacing = physicsRadius * 2.4;
+        const offsetX = (col - 1) * spacing;
+        const offsetY = (row - 1) * spacing;
+        const spr = this.spawnMarbleSprite(m, tilePos.x + offsetX, tilePos.y + offsetY, true, physicsRadius, 0);
+        // Radial outward velocity so marbles immediately fly apart.
+        // Use a pre-determined angle per grid slot so every marble — including
+        // the center one — gets a distinct downward-biased direction.
+        if (spr.physicsBody) {
+          const slotAngles = [
+            225, 270, 315,   // row 0: top-left, top, top-right
+            180, 260, 0,     // row 1: left, center-down, right
+            135,  90,  45,   // row 2: bottom-left, bottom, bottom-right
+          ];
+          const deg = (slotAngles[k] ?? (90 + k * 40)) * (Math.PI / 180);
+          const speed = 3.5 + row * 1.2;
+          (spr.physicsBody as any).velocity = {
+            x: Math.cos(deg) * speed,
+            y: Math.sin(deg) * speed,
+          };
+        }
         this.marbleScales.set(m.id, targetScale);
+        if (this.level.mergeZone) this.pendingInFlight.set(m.id, m);
         this.tweens.add({
           targets: spr.container,
           scale: targetScale,
@@ -823,8 +927,131 @@ export class GameScene extends Phaser.Scene {
     this.statusText.setText("");
   }
 
+  // ─────────────────────────── MERGE ZONE ───────────────────────────
+
+  private handleMergeExit(marbleBody: any): void {
+    const id = Number(marbleBody.label.slice(7));
+    if (this.exitedIds.has(id)) return;
+    const m = this.inFlight.get(id) ?? this.pendingInFlight.get(id);
+    if (!m) return;
+    this.exitedIds.add(id);
+    this.inFlight.delete(id);
+    this.pendingInFlight.delete(id);
+    this.state.pendingEject.push(m);
+
+    // Drop the physics body so the sprite stops being driven by Matter and
+    // waits in place for the next tick's inject animation to take it to slot 0.
+    const spr = this.marbleSprites.get(id);
+    if (spr?.physicsBody) {
+      this.matter.world.remove(spr.physicsBody as any, true);
+      spr.physicsBody = undefined;
+    }
+  }
+
+  private mergeMarbles(
+    bodyA: any,
+    bodyB: any,
+    mA: Marble,
+    mB: Marble,
+  ): void {
+    const x = (bodyA.position.x + bodyB.position.x) / 2;
+    const y = (bodyA.position.y + bodyB.position.y) / 2;
+    const vx = (bodyA.velocity.x + bodyB.velocity.x) / 2;
+    const vy = (bodyA.velocity.y + bodyB.velocity.y) / 2;
+
+    this.inFlight.delete(mA.id);
+    this.inFlight.delete(mB.id);
+    this.pendingInFlight.delete(mA.id);
+    this.pendingInFlight.delete(mB.id);
+    this.marbleScales.delete(mA.id);
+    this.marbleScales.delete(mB.id);
+    this.destroyMarbleSprite(mA.id);
+    this.destroyMarbleSprite(mB.id);
+
+    const big: Marble = {
+      id: this.state.nextMarbleId++,
+      color: mA.color,
+      size: "large",
+    };
+    const targetScale = MARBLE_SIZE_SCALE.large;
+    const physicsRadius = CONVEYOR_MARBLE_RADIUS * targetScale;
+    const spr = this.spawnMarbleSprite(big, x, y, true, physicsRadius, targetScale);
+    if (spr.physicsBody) {
+      (spr.physicsBody as any).velocity = { x: vx, y: vy };
+    }
+    this.marbleScales.set(big.id, targetScale);
+    this.inFlight.set(big.id, big);
+
+    // Push all nearby in-flight bodies away from the merge point so the new
+    // large marble doesn't spawn inside neighbours and clip through them.
+    const pushRadius = physicsRadius * 3;
+    const pushStrength = 8;
+    for (const [nid, nm] of this.inFlight) {
+      if (nid === big.id) continue;
+      const nspr = this.marbleSprites.get(nid);
+      if (!nspr?.physicsBody) continue;
+      const nb = nspr.physicsBody as any;
+      const dx = nb.position.x - x;
+      const dy = nb.position.y - y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      if (dist < pushRadius) {
+        const force = pushStrength * (1 - dist / pushRadius);
+        nb.velocity = {
+          x: nb.velocity.x + (dx / dist) * force,
+          y: nb.velocity.y + (dy / dist) * force,
+        };
+      }
+    }
+
+    this.flashMergeBurst(x, y, mA.color);
+  }
+
+  private spawnSparkle(x: number, y: number): void {
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2;
+      const dx = Math.cos(angle) * 18;
+      const dy = Math.sin(angle) * 18;
+      const dot = this.add.graphics();
+      dot.fillStyle(0xffffff, 0.95);
+      dot.fillCircle(x, y, 2.5);
+      dot.setDepth(15);
+      this.tweens.add({
+        targets: dot,
+        x: x + dx,
+        y: y + dy,
+        alpha: 0,
+        duration: 200,
+        ease: "Quad.out",
+        onComplete: () => dot.destroy(),
+      });
+    }
+  }
+
+  private flashMergeBurst(x: number, y: number, color: Marble["color"]): void {
+    const tint = MARBLE_COLORS[color];
+    const ring = this.add.graphics();
+    ring.lineStyle(3, tint, 1);
+    ring.strokeCircle(x, y, 6);
+    ring.setDepth(15);
+    this.tweens.add({
+      targets: ring,
+      scale: 3.5,
+      alpha: 0,
+      duration: 280,
+      ease: "Cubic.out",
+      onComplete: () => ring.destroy(),
+    });
+    this.cameras.main.shake(80, 0.005);
+  }
+
   private handleUndo(): void {
     if (this.state.history.length === 0) return;
+    // Undo can't safely restore in-flight physics state — ignore while
+    // marbles are still in the bowl on merge-zone levels.
+    if (this.level.mergeZone && (this.inFlight.size > 0 || this.pendingInFlight.size > 0)) {
+      this.flashStatus("Wait for marbles to settle");
+      return;
+    }
     const snap = this.state.history.pop()!;
     restoreSnapshot(this.state, snap);
     this.fullRebuild();
@@ -839,6 +1066,9 @@ export class GameScene extends Phaser.Scene {
     // Clear all marble sprites (also removes any physics bodies)
     const ids = [...this.marbleSprites.keys()];
     for (const id of ids) this.destroyMarbleSprite(id);
+    this.pendingInFlight.clear();
+    this.inFlight.clear();
+    this.exitedIds.clear();
 
     // Rebuild tiles
     for (const row of this.tileSprites) {

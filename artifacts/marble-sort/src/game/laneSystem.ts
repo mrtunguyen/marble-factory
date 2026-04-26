@@ -32,42 +32,60 @@ import { MMC_CAPACITY } from "./constants";
  *
  * Caller must pass `tileColors` to constrain which tiles count (typically the
  * tube colors — others are dropped so they don't pollute the pool).
+ *
+ * If `override` is supplied, it replaces the tile-derived multiset. Used when
+ * the post-merge supply diverges from raw tile supply (e.g. level 5).
  */
 export function buildRandomMmcLayout(
   tiles: (LevelTile | null)[][],
   marblesPerBlock: number,
   laneCount: number,
   tubeColors: MarbleColor[],
+  override?: HoleSpec[],
 ): MMCSpec[][] {
-  const lanes: MMCSpec[][] = Array.from({ length: laneCount }, () => []);
+  // Build a flat list of MMCSpecs — one per color group, holes all same color.
+  // Each MMC gets its holes from the shuffled per-color pool, so size order
+  // varies but color is uniform within an MMC (container color = hole color).
+  const allMMCs: MMCSpec[] = [];
 
-  for (let laneIdx = 0; laneIdx < laneCount; laneIdx++) {
-    const color = tubeColors[laneIdx];
-    if (!color) continue;
-
-    // Collect only tiles of this lane's color.
+  for (const color of tubeColors) {
     const pool: HoleSpec[] = [];
-    for (const row of tiles) {
-      for (const tile of row) {
-        if (!tile || tile.color !== color) continue;
-        const size = tile.size ?? "medium";
-        for (let k = 0; k < marblesPerBlock; k++) {
-          pool.push({ color, size });
+    if (override) {
+      for (const h of override) {
+        if (h.color === color) pool.push({ color: h.color, size: h.size });
+      }
+    } else {
+      for (const row of tiles) {
+        for (const tile of row) {
+          if (!tile || tile.color !== color) continue;
+          const size = tile.size ?? "medium";
+          for (let k = 0; k < marblesPerBlock; k++) {
+            pool.push({ color, size });
+          }
         }
       }
     }
 
-    // Fisher–Yates shuffle within this lane's pool.
+    // Shuffle hole order within this color's pool.
     for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
 
-    // Group into MMCs of MMC_CAPACITY holes each.
     for (let i = 0; i + MMC_CAPACITY <= pool.length; i += MMC_CAPACITY) {
-      lanes[laneIdx].push({ holes: pool.slice(i, i + MMC_CAPACITY) });
+      allMMCs.push({ holes: pool.slice(i, i + MMC_CAPACITY) });
     }
   }
+
+  // Shuffle all MMCs globally so each lane gets a random mix of colors.
+  for (let i = allMMCs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allMMCs[i], allMMCs[j]] = [allMMCs[j], allMMCs[i]];
+  }
+
+  // Deal round-robin across lanes.
+  const lanes: MMCSpec[][] = Array.from({ length: laneCount }, () => []);
+  allMMCs.forEach((mmc, i) => lanes[i % laneCount].push(mmc));
 
   return lanes;
 }

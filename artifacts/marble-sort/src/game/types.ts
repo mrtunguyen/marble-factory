@@ -104,6 +104,13 @@ export interface LevelDef {
   // explicit/legacy tube specs. Holes are a procedurally shuffled multiset
   // matching the tile supply, distributed round-robin across lanes.
   randomMmcLayout?: boolean;
+  // Mechanic: tile-released marbles drop into a physics bowl above the
+  // conveyor where same-color smalls auto-merge into larges. Only enters
+  // pendingEject after physically crossing the merge-exit sensor.
+  mergeZone?: boolean;
+  // Override the tile-derived hole multiset for procedural MMC layout. Used
+  // when the post-merge supply differs from the raw tile supply (level 5).
+  holeSupply?: HoleSpec[];
 }
 
 export interface GameState {

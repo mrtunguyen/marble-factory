@@ -8,7 +8,7 @@
 // No Phaser imports. All functions mutate the GameState in place and the caller
 // is responsible for snapshotting before mutation if undo is needed.
 
-import type { GameState, GridTile } from "./types";
+import type { GameState, GridTile, Marble } from "./types";
 
 /** Result of attempting to tap a grid tile. */
 export interface TapOutcome {
@@ -16,9 +16,20 @@ export interface TapOutcome {
     | "noop"          // tile is empty / locked / unknown
     | "revealed"      // mystery tile revealed its color
     | "counter"       // counter decremented but not yet unlocked
-    | "released";     // marbles were released into pendingEject
+    | "released";     // marbles were released
   releasedCount: number;
+  // Newly created marbles for this tap. Empty unless kind === "released".
+  // When `deferEject` is true the caller is responsible for placing them; in
+  // the default flow they are also pushed onto state.pendingEject.
+  released: Marble[];
   tile: GridTile | null;
+}
+
+export interface TapOptions {
+  // If true, do NOT push released marbles onto pendingEject. Caller (the
+  // renderer for merge-zone levels) hands them to physics first and pushes to
+  // pendingEject only once each marble crosses the conveyor-entry sensor.
+  deferEject?: boolean;
 }
 
 /** True when (r, c) is in bounds and the tile there is empty. */
@@ -56,41 +67,43 @@ export function refreshLocks(state: GameState): void {
 
 /** Tap the tile at (r, c) and apply the appropriate transition.
  *  Returns a description of what happened. */
-export function tapTile(state: GameState, r: number, c: number): TapOutcome {
+export function tapTile(
+  state: GameState,
+  r: number,
+  c: number,
+  opts: TapOptions = {},
+): TapOutcome {
   if (state.status !== "playing") {
-    return { kind: "noop", releasedCount: 0, tile: null };
+    return { kind: "noop", releasedCount: 0, released: [], tile: null };
   }
   const tile = state.tiles[r][c];
-  if (!tile) return { kind: "noop", releasedCount: 0, tile: null };
+  if (!tile) return { kind: "noop", releasedCount: 0, released: [], tile: null };
 
   // Locked: must be unlocked first.
   if (tile.kind === "locked" && !tile.unlocked) {
     if (!locksSatisfied(state, r, c)) {
-      return { kind: "noop", releasedCount: 0, tile };
+      return { kind: "noop", releasedCount: 0, released: [], tile };
     }
     tile.unlocked = true;
-    // First tap on a locked tile just opens the lock — releases nothing.
-    return { kind: "revealed", releasedCount: 0, tile };
+    return { kind: "revealed", releasedCount: 0, released: [], tile };
   }
 
   // Mystery: first tap reveals.
   if (tile.kind === "mystery" && !tile.revealed) {
     tile.revealed = true;
-    return { kind: "revealed", releasedCount: 0, tile };
+    return { kind: "revealed", releasedCount: 0, released: [], tile };
   }
 
   // Counter: decrement until 0.
   if (tile.kind === "counter" && tile.counter && tile.counter > 1) {
     tile.counter -= 1;
-    return { kind: "counter", releasedCount: 0, tile };
+    return { kind: "counter", releasedCount: 0, released: [], tile };
   }
   if (tile.kind === "counter" && tile.counter === 1) {
-    // About to release on this tap.
     tile.counter = 0;
   }
 
-  // Release ALL the tile's marbles into the pending-eject queue at once.
-  return releaseAllMarbles(state, r, c, tile);
+  return releaseAllMarbles(state, r, c, tile, opts.deferEject ?? false);
 }
 
 function releaseAllMarbles(
@@ -98,24 +111,28 @@ function releaseAllMarbles(
   r: number,
   c: number,
   tile: GridTile,
+  deferEject: boolean,
 ): TapOutcome {
   if (tile.marblesLeft <= 0) {
     state.tiles[r][c] = null;
     refreshLocks(state);
-    return { kind: "noop", releasedCount: 0, tile: null };
+    return { kind: "noop", releasedCount: 0, released: [], tile: null };
   }
   const count = tile.marblesLeft;
+  const released: Marble[] = [];
   for (let i = 0; i < count; i++) {
-    state.pendingEject.push({
+    const m: Marble = {
       id: state.nextMarbleId++,
       color: tile.color,
       size: tile.size,
-    });
+    };
+    released.push(m);
+    if (!deferEject) state.pendingEject.push(m);
   }
   tile.marblesLeft = 0;
   state.tiles[r][c] = null;
   refreshLocks(state);
-  return { kind: "released", releasedCount: count, tile: null };
+  return { kind: "released", releasedCount: count, released, tile: null };
 }
 
 /** True when every grid tile is null (all blocks consumed). */

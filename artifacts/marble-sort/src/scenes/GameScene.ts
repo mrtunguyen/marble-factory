@@ -80,6 +80,7 @@ export class GameScene extends Phaser.Scene {
   private conveyorWidth = 0;
   private lanesY = 0;
   private shippingLaneIds: Set<number> = new Set();
+  private revealedMMCIds: Set<number> = new Set();
   private mmcExitDepth = 20;
 
   // Funnel physics geometry (computed in drawGridPanel, used by createFunnelColliders)
@@ -120,6 +121,7 @@ export class GameScene extends Phaser.Scene {
     this.isAnimating = false;
     this.lastTickAt = 0;
     this.shippingLaneIds = new Set();
+    this.revealedMMCIds = new Set();
     this.mmcExitDepth = 20;
     this.tapCount = 0;
     this.startedAt = 0;
@@ -640,6 +642,9 @@ export class GameScene extends Phaser.Scene {
 
     const mmcW = TUBE_WIDTH - MMC_WIDTH_PADDING;
     const mmcH = MMC_HEIGHT;
+    let activeMMCId: number | null = null;
+    let shouldRevealAnimate = false;
+
     lane.queue.slice(0, 4).forEach((mmc, queueIndex) => {
       const py = y + 24 + queueIndex * (mmcH + MMC_QUEUE_GAP);
       const isActive = queueIndex === 0;
@@ -648,8 +653,71 @@ export class GameScene extends Phaser.Scene {
       g.fillRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
       g.lineStyle(2, 0xffffff, isActive ? 0.95 : 0.45);
       g.strokeRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
+      const isHidden = (mmc.holes[0]?.hidden ?? false) && !isActive;
+      const shellColor = isHidden ? 0x888888 : MARBLE_COLORS[mmc.holes[0]?.color ?? "red"];
 
+      // Create a separate container for the active MMC so it can be animated independently
       if (isActive) {
+        const mmcContainer = this.add.container(0, 0).setName(`mmc-${i}-active`);
+        const mmcG = this.add.graphics();
+        mmcContainer.add(mmcG);
+
+        mmcG.fillStyle(shellColor, 1);
+        mmcG.fillRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
+        mmcG.lineStyle(2, 0xffffff, 0.95);
+        mmcG.strokeRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
+
+        // Draw holes in the active MMC container
+        for (let j = 0; j < MMC_CAPACITY; j++) {
+          const p = this.mmcMarblePos(i, j);
+          const hole = mmc.holes[j];
+          if (!hole) continue;
+          if (hole.marble) {
+            mmcG.lineStyle(1, 0x2c5c5e, 0.18);
+            mmcG.strokeCircle(
+              p.x,
+              p.y,
+              holeRadius * MARBLE_SIZE_SCALE[hole.size],
+            );
+          } else {
+            const holeG = this.add.graphics();
+            holeG.x = p.x;
+            holeG.y = p.y;
+            drawHole(holeG, holeRadius, hole);
+            mmcContainer.add(holeG);
+          }
+        }
+
+        container.add(mmcContainer);
+        activeMMCId = mmc.id;
+
+        // Check if this MMC should animate
+        if (mmc.holes[0]?.hidden === false && !this.revealedMMCIds.has(mmc.id)) {
+          this.revealedMMCIds.add(mmc.id);
+          shouldRevealAnimate = true;
+        }
+      } else {
+        // Draw inactive MMCs in the main graphics
+        g.fillStyle(shellColor, 0.42);
+        g.fillRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
+        g.lineStyle(2, 0xffffff, 0.45);
+        g.strokeRoundedRect(x - mmcW / 2, py - mmcH / 2, mmcW, mmcH, 8);
+
+        // Draw question mark on hidden MMCs
+        if (isHidden) {
+          const questionMark = this.add
+            .text(x, py, "?", {
+              fontFamily: "Arial Black, sans-serif",
+              fontSize: "32px",
+              color: "#ffffff",
+              stroke: "#000000",
+              strokeThickness: 3,
+            })
+            .setOrigin(0.5);
+          container.add(questionMark);
+        }
+
+        // Draw holes in inactive MMCs
         for (let j = 0; j < MMC_CAPACITY; j++) {
           const p = this.mmcMarblePos(i, j);
           const hole = mmc.holes[j];
@@ -670,6 +738,25 @@ export class GameScene extends Phaser.Scene {
           }
         }
       }
+    });
+
+    // Animate the active MMC if it was just revealed
+    if (shouldRevealAnimate && activeMMCId !== null) {
+      const mmcContainer = this.children.getByName(`mmc-${i}-active`) as Phaser.GameObjects.Container;
+      if (mmcContainer) {
+        this.animateMMCReveal(mmcContainer);
+      }
+    }
+  }
+
+  private animateMMCReveal(container: Phaser.GameObjects.Container): void {
+    this.tweens.add({
+      targets: container,
+      rotation: Math.PI / 12,
+      duration: 80,
+      ease: "Sine.inOut",
+      yoyo: true,
+      repeat: 2,
     });
   }
 

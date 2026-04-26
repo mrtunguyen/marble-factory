@@ -12,14 +12,17 @@ import {
   DEFAULT_CONVEYOR_CAPACITY,
   DEFAULT_MARBLES_PER_BLOCK,
   DEFAULT_TICK_MS,
-  DEFAULT_TUBE_CAPACITY,
+  TILE_SIZE_SCALE,
 } from "../game/constants";
 import { drawTile, drawMarble } from "../game/draw";
 import type {
   GridTile,
+  HoleSpec,
   LevelDef,
   LevelTile,
   MarbleColor,
+  MarbleSize,
+  MMCSpec,
   TileKind,
   TubeSpec,
 } from "../game/types";
@@ -28,6 +31,7 @@ interface PaintMode {
   kind: TileKind | "erase";
   color: MarbleColor;
   counter?: number;
+  size?: "small" | "medium" | "large";
 }
 
 const EDITOR_COLS = 4;
@@ -37,12 +41,13 @@ const CELL_GAP = 6;
 
 export class EditorScene extends Phaser.Scene {
   private tiles: (LevelTile | null)[][] = [];
-  private tubes: TubeSpec[] = [];
   private mode: PaintMode = { kind: "block", color: "red" };
   private gridContainer!: Phaser.GameObjects.Container;
   private cellGfx: Phaser.GameObjects.Graphics[][] = [];
   private modeText!: Phaser.GameObjects.Text;
-  private tubesContainer!: Phaser.GameObjects.Container;
+  private mysteryMMCCounter!: Phaser.GameObjects.Text;
+  private mysteryMMCCount: number = 0;
+  private maxMysteryMMCs: number = 0;
 
   constructor() {
     super("EditorScene");
@@ -53,11 +58,6 @@ export class EditorScene extends Phaser.Scene {
     this.tiles = Array.from({ length: EDITOR_ROWS }, () =>
       new Array(EDITOR_COLS).fill(null),
     );
-    this.tubes = [
-      { color: "red", capacity: DEFAULT_TUBE_CAPACITY },
-      { color: "blue", capacity: DEFAULT_TUBE_CAPACITY },
-      { color: "green", capacity: DEFAULT_TUBE_CAPACITY },
-    ];
     this.mode = { kind: "block", color: "red" };
 
     const bg = this.add.graphics();
@@ -84,9 +84,6 @@ export class EditorScene extends Phaser.Scene {
     // Palette
     this.buildPalette();
 
-    // Tubes editor
-    this.buildTubesEditor();
-
     // Action buttons
     this.makeButton(GAME_WIDTH / 2 - 105, GAME_HEIGHT - 60, "TEST PLAY", 0x6dd35f, () =>
       this.testPlay(),
@@ -94,6 +91,23 @@ export class EditorScene extends Phaser.Scene {
     this.makeButton(GAME_WIDTH / 2 + 105, GAME_HEIGHT - 60, "COPY JSON", 0x49b9ff, () =>
       this.copyJson(),
     );
+
+    // Mystery MMC counter and controls (center bottom)
+    const mysteryY = GAME_HEIGHT - 30;
+    this.makeSmallButton(GAME_WIDTH / 2 - 70, mysteryY, "−", 0xff9800, () =>
+      this.adjustMysteryCount(-1),
+    );
+    this.mysteryMMCCounter = this.add
+      .text(GAME_WIDTH / 2, mysteryY, "", {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "13px",
+        color: UI_TEXT_LIGHT,
+      })
+      .setOrigin(0.5);
+    this.makeSmallButton(GAME_WIDTH / 2 + 70, mysteryY, "+", 0xff9800, () =>
+      this.adjustMysteryCount(1),
+    );
+    this.updateMysteryCounter();
   }
 
   // ─────────── TOP BAR ───────────
@@ -169,13 +183,13 @@ export class EditorScene extends Phaser.Scene {
     const gridTile: GridTile = {
       kind: tile.kind,
       color: tile.color,
-      size: "medium",
+      size: tile.size ?? "medium",
       marblesLeft: DEFAULT_MARBLES_PER_BLOCK,
       counter: tile.counter,
       revealed: tile.kind === "mystery" ? false : undefined,
       unlocked: tile.kind === "locked" ? false : undefined,
     };
-    drawTile(g, CELL, gridTile);
+    drawTile(g, CELL, gridTile, DEFAULT_MARBLES_PER_BLOCK, TILE_SIZE_SCALE[gridTile.size]);
   }
 
   private redrawAllCells(): void {
@@ -194,9 +208,11 @@ export class EditorScene extends Phaser.Scene {
         kind: this.mode.kind,
         color: this.mode.color,
         counter: this.mode.kind === "counter" ? (this.mode.counter ?? 2) : undefined,
+        size: this.mode.size,
       };
     }
     this.redrawCell(r, c);
+    this.updateMysteryCounter();
   }
 
   // ─────────── PALETTE ───────────
@@ -213,6 +229,7 @@ export class EditorScene extends Phaser.Scene {
     // Tile-kind row
     const kinds: { label: string; mode: PaintMode }[] = [
       { label: "Block", mode: { kind: "block", color: this.mode.color } },
+      { label: "Small", mode: { kind: "block", color: this.mode.color, size: "small" } },
       { label: "?", mode: { kind: "mystery", color: this.mode.color } },
       { label: "C2", mode: { kind: "counter", color: this.mode.color, counter: 2 } },
       { label: "C3", mode: { kind: "counter", color: this.mode.color, counter: 3 } },
@@ -277,7 +294,7 @@ export class EditorScene extends Phaser.Scene {
     else if (m.kind === "counter") label = `Counter-${m.counter} ${m.color}`;
     else if (m.kind === "mystery") label = `Mystery (hidden ${m.color})`;
     else if (m.kind === "locked") label = `Locked ${m.color}`;
-    else label = `${m.color} block`;
+    else label = m.size ? `${m.size} ${m.color} block` : `${m.color} block`;
     this.modeText.setText(`Brush: ${label}`);
   }
 
@@ -308,81 +325,127 @@ export class EditorScene extends Phaser.Scene {
     c.on("pointerout", () => c.setScale(1));
   }
 
-  // ─────────── TUBES EDITOR ───────────
-  private buildTubesEditor(): void {
-    const top = 600;
-    this.add
-      .text(GAME_WIDTH / 2, top, "TUBES (tap to cycle color, +/- to add/remove)", {
-        fontFamily: "Arial Black, sans-serif",
-        fontSize: "11px",
-        color: UI_TEXT_LIGHT,
-      })
-      .setOrigin(0.5);
+  // ─────────── MYSTERY MMC COUNTER ───────────
+  private updateMysteryCounter(): void {
+    const mmcs = this.generateAutoLanes();
+    let totalMMCs = 0;
 
-    this.tubesContainer = this.add.container(0, top + 30);
-    this.redrawTubes();
+    for (const tube of mmcs) {
+      totalMMCs += tube.mmcs?.length ?? 0;
+    }
 
-    // Add / remove tubes
-    this.makePaletteButton(GAME_WIDTH / 2 - 44, top + 100, "+ tube", () => {
-      if (this.tubes.length < 6) {
-        this.tubes.push({ color: "red", capacity: DEFAULT_TUBE_CAPACITY });
-        this.redrawTubes();
-      }
-    });
-    this.makePaletteButton(GAME_WIDTH / 2 + 44, top + 100, "- tube", () => {
-      if (this.tubes.length > 1) {
-        this.tubes.pop();
-        this.redrawTubes();
-      }
-    });
+    this.maxMysteryMMCs = totalMMCs;
+    this.mysteryMMCCount = Math.min(this.mysteryMMCCount, this.maxMysteryMMCs);
+
+    this.mysteryMMCCounter.setText(
+      `Mystery: ${this.mysteryMMCCount}/${this.maxMysteryMMCs}`,
+    );
   }
 
-  private redrawTubes(): void {
-    this.tubesContainer.removeAll(true);
-    const n = this.tubes.length;
-    const slot = 56;
-    const totalW = n * slot + (n - 1) * 6;
-    const startX = (GAME_WIDTH - totalW) / 2 + slot / 2;
-    this.tubes.forEach((tube, i) => {
-      const x = startX + i * (slot + 6);
-      const c = this.add.container(x, 0);
-      const g = this.add.graphics();
-      g.fillStyle(MARBLE_COLORS[tube.color], 1);
-      g.fillRoundedRect(-22, -16, 44, 32, 8);
-      g.lineStyle(2, 0xffffff, 0.9);
-      g.strokeRoundedRect(-22, -16, 44, 32, 8);
-      c.add(g);
+  private adjustMysteryCount(delta: number): void {
+    this.mysteryMMCCount = Math.max(
+      0,
+      Math.min(this.mysteryMMCCount + delta, this.maxMysteryMMCs),
+    );
+    this.mysteryMMCCounter.setText(
+      `Mystery: ${this.mysteryMMCCount}/${this.maxMysteryMMCs}`,
+    );
+  }
 
-      const mg = this.add.graphics();
-      drawMarble(mg, 16, tube.color);
-      mg.y = 0;
-      c.add(mg);
-
-      const lbl = this.add
-        .text(0, 28, `cap ${tube.capacity}`, {
-          fontFamily: "Arial Black, sans-serif",
-          fontSize: "10px",
-          color: "#ffffff",
-        })
-        .setOrigin(0.5);
-      c.add(lbl);
-
-      c.setSize(44, 32);
-      c.setInteractive({ useHandCursor: true });
-      c.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-        if (pointer.rightButtonDown()) {
-          // cycle capacity 3 → 6 → 9
-          tube.capacity = tube.capacity === 9 ? 3 : tube.capacity + 3;
-        } else {
-          // cycle color
-          const idx = ALL_COLORS.indexOf(tube.color);
-          tube.color = ALL_COLORS[(idx + 1) % ALL_COLORS.length];
+  // ─────────── AUTO LANE GENERATION ───────────
+  private generateAutoLanes(): TubeSpec[] {
+    // Collect all unique colors from tiles
+    const colors = new Set<string>();
+    for (let r = 0; r < EDITOR_ROWS; r++) {
+      for (let c = 0; c < EDITOR_COLS; c++) {
+        const tile = this.tiles[r][c];
+        if (tile && tile.kind !== "erase") {
+          colors.add(tile.color);
         }
-        this.redrawTubes();
-      });
+      }
+    }
 
-      this.tubesContainer.add(c);
+    const colorArray = Array.from(colors).sort();
+    const allMMCs: { color: string; holes: HoleSpec[] }[] = [];
+
+    // Build per-color MMCs — each color's marbles go into separate MMCs
+    for (const color of colorArray) {
+      const colorHoles: HoleSpec[] = [];
+
+      // Collect all holes of this color
+      for (let r = 0; r < EDITOR_ROWS; r++) {
+        for (let c = 0; c < EDITOR_COLS; c++) {
+          const tile = this.tiles[r][c];
+          if (!tile || tile.kind === "erase" || tile.color !== color) continue;
+          const size = tile.size ?? "medium";
+          for (let k = 0; k < DEFAULT_MARBLES_PER_BLOCK; k++) {
+            colorHoles.push({ color, size });
+          }
+        }
+      }
+
+      // Fisher–Yates shuffle within this color's pool
+      for (let i = colorHoles.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [colorHoles[i], colorHoles[j]] = [colorHoles[j], colorHoles[i]];
+      }
+
+      // Group into MMCs of capacity 3
+      for (let i = 0; i + 3 <= colorHoles.length; i += 3) {
+        allMMCs.push({
+          color,
+          holes: colorHoles.slice(i, i + 3),
+        });
+      }
+    }
+
+    // Fisher–Yates shuffle all MMCs to randomize across lanes
+    for (let i = allMMCs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allMMCs[i], allMMCs[j]] = [allMMCs[j], allMMCs[i]];
+    }
+
+    // Randomly select which MMCs to mark as hidden/mystery
+    const hiddenIndices = new Set<number>();
+    if (this.mysteryMMCCount > 0 && allMMCs.length > 0) {
+      const indices = Array.from({ length: allMMCs.length }, (_, i) => i);
+      // Fisher–Yates shuffle, then take first mysteryMMCCount
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      // Mark the first N indices as hidden
+      for (let k = 0; k < Math.min(this.mysteryMMCCount, allMMCs.length); k++) {
+        hiddenIndices.add(indices[k]);
+      }
+    }
+
+    // Deal MMCs round-robin across 3 lanes
+    const laneQueues: { color: string; holes: HoleSpec[]; hidden: boolean }[][] = [[], [], []];
+    allMMCs.forEach((mmc, idx) => {
+      laneQueues[idx % 3].push({
+        color: mmc.color,
+        holes: mmc.holes,
+        hidden: hiddenIndices.has(idx),
+      });
     });
+
+    // Build tubes — tube color is determined by head MMC of each lane
+    const tubes: TubeSpec[] = [];
+    for (let laneIdx = 0; laneIdx < 3; laneIdx++) {
+      const mmcs: MMCSpec[] = laneQueues[laneIdx].map((mmc) => ({
+        holes: mmc.holes,
+        hidden: mmc.hidden,
+      }));
+      const headColor = laneQueues[laneIdx][0]?.color ?? "red";
+      tubes.push({
+        color: headColor,
+        capacity: 3,
+        mmcs,
+      });
+    }
+
+    return tubes;
   }
 
   // ─────────── ACTIONS ───────────
@@ -398,7 +461,7 @@ export class EditorScene extends Phaser.Scene {
       tiles: this.tiles.map((row) =>
         row.map((t) => (t ? { ...t } : null)),
       ),
-      tubes: this.tubes.map((t) => ({ ...t })),
+      tubes: this.generateAutoLanes(),
     };
   }
 
@@ -467,6 +530,38 @@ export class EditorScene extends Phaser.Scene {
     c.setInteractive({ useHandCursor: true });
     c.on("pointerdown", cb);
     c.on("pointerover", () => c.setScale(1.05));
+    c.on("pointerout", () => c.setScale(1));
+  }
+
+  private makeSmallButton(
+    x: number,
+    y: number,
+    label: string,
+    color: number,
+    cb: () => void,
+  ): void {
+    const c = this.add.container(x, y);
+    const g = this.add.graphics();
+    g.fillStyle(0x000000, 0.25);
+    g.fillRoundedRect(-18, -16, 36, 32, 8);
+    g.fillStyle(color, 1);
+    g.fillRoundedRect(-18, -18, 36, 32, 8);
+    g.lineStyle(2, 0xffffff, 0.8);
+    g.strokeRoundedRect(-18, -18, 36, 32, 8);
+    const t = this.add
+      .text(0, -2, label, {
+        fontFamily: "Arial Black, sans-serif",
+        fontSize: "18px",
+        color: "#ffffff",
+        stroke: "#000000",
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+    c.add([g, t]);
+    c.setSize(36, 32);
+    c.setInteractive({ useHandCursor: true });
+    c.on("pointerdown", cb);
+    c.on("pointerover", () => c.setScale(1.08));
     c.on("pointerout", () => c.setScale(1));
   }
 }

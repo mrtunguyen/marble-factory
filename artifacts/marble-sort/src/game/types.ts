@@ -23,7 +23,7 @@ export interface Marble {
   size: MarbleSize;
 }
 
-export type TileKind = "block" | "mystery" | "counter" | "locked";
+export type TileKind = "block" | "mystery" | "counter" | "locked" | "mmc";
 
 export interface GridTile {
   kind: TileKind;
@@ -42,6 +42,7 @@ export interface HoleSpec {
 
 export interface MMCSpec {
   holes: HoleSpec[]; // length must be MMC_CAPACITY
+  hidden?: boolean; // true if this MMC's color is hidden until it reaches the head
 }
 
 export interface TubeSpec {
@@ -63,6 +64,7 @@ export interface Hole {
   color: MarbleColor;
   size: MarbleSize;
   marble?: Marble;
+  hidden?: boolean; // true if this hole's color is hidden (grey) until revealed
 }
 
 export interface MMC {

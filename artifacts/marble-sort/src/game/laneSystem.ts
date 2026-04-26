@@ -124,6 +124,7 @@ export function buildLanesFromTubes(
         const holes: Hole[] = m.holes.map((h) => ({
           color: h.color,
           size: h.size,
+          hidden: m.hidden,
         }));
         const mmc: MMC = { id: nextId++, holes };
         lanes[laneIdx % laneCount].queue.push(mmc);
@@ -291,6 +292,20 @@ export function shipFilledMMCs(state: GameState): ShipEvent[] {
   }
 
   return events;
+}
+
+/** Reveal any hidden MMCs that are now the head of their lane.
+ *  Called after shifting MMCs to make newly-active ones visible. */
+export function revealHiddenMMCs(state: GameState): void {
+  if (!state.lanes) return;
+  for (const lane of state.lanes) {
+    const mmc = activeMMC(lane);
+    if (!mmc) continue;
+    // Unhide all holes in the active MMC
+    for (const hole of mmc.holes) {
+      hole.hidden = false;
+    }
+  }
 }
 
 /** True when every lane's queue is empty. */

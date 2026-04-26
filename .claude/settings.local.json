@@ -30,7 +30,9 @@
       "Bash(pnpm --filter @workspace/marble-sort run dev)",
       "Bash(Get-Content \"C:\\\\Users\\\\ilyas\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-ilyas-hackathon-jic-studio-marble-game\\\\b082cceb-02f9-4fc3-8a1e-1c1030e97ab4\\\\tasks\\\\bv1cyh3tj.output\" -Wait)",
       "PowerShell(Get-Command pnpm -ErrorAction SilentlyContinue)",
-      "PowerShell(npm root -g)"
+      "PowerShell(npm root -g)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

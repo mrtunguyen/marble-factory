@@ -17,6 +17,7 @@ import {
   buildLanesFromTubes,
   buildRandomMmcLayout,
   pickupFromConveyor,
+  revealHiddenMMCs,
   shipFilledMMCs,
   type PickupEvent,
   type ShipEvent,
@@ -95,6 +96,7 @@ export function buildGameState(def: LevelDef): GameState {
     history: [],
   };
   refreshLocks(state);
+  revealHiddenMMCs(state);
   return state;
 }
 
@@ -197,6 +199,7 @@ export function tick(
   // 3. MMCs can only take marbles from their adjacent conveyor slot.
   const pickups = pickupFromConveyor(state, laneSlotIndex);
   const shipped = shipFilledMMCs(state);
+  revealHiddenMMCs(state);
 
   // 4. Deadlock check: conveyor full with no matching colors for active MMCs.
   if (isConveyorDeadlock(state)) {
